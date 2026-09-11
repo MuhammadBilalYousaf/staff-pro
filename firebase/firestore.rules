@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return userDoc().role;
+    }
+
+    function isSuperAdmin() {
+      return signedIn() && role() == 'superAdmin';
+    }
+
+    function isBusinessAdmin(bizId) {
+      return signedIn() && role() == 'businessAdmin' && userDoc().businessId == bizId;
+    }
+
+    function isManager(bizId, branchId) {
+      return signedIn()
+        && role() == 'manager'
+        && userDoc().businessId == bizId
+        && userDoc().branchId == branchId;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isSuperAdmin()
+        || (signedIn() && userDoc().businessId == resource.data.businessId && role() in ['businessAdmin'])
+        || (signedIn() && userDoc().branchId == resource.data.branchId && role() == 'manager')
+        || isOwner(userId);
+      allow write: if isSuperAdmin()
+        || (isBusinessAdmin(request.resource.data.businessId))
+        || (role() == 'manager' && request.resource.data.role == 'employee' && request.resource.data.branchId == userDoc().branchId);
+    }
+
+    match /businesses/{bizId} {
+      allow read: if isSuperAdmin() || isBusinessAdmin(bizId);
+      allow write: if isSuperAdmin();
+    }
+
+    match /branches/{id} {
+      allow read: if isSuperAdmin()
+        || isBusinessAdmin(resource.data.businessId)
+        || (signedIn() && userDoc().branchId == id);
+      allow write: if isSuperAdmin() || isBusinessAdmin(request.resource.data.businessId);
+    }
+
+    match /sales/{id} {
+      allow read: if isSuperAdmin()
+        || isBusinessAdmin(resource.data.businessId)
+        || isManager(resource.data.businessId, resource.data.branchId)
+        || isOwner(resource.data.userId);
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && (isBusinessAdmin(request.resource.data.businessId)
+            || isManager(request.resource.data.businessId, request.resource.data.branchId)
+            || (role() == 'employee' && userDoc().branchId == request.resource.data.branchId));
+    }
+
+    match /expenses/{id} {
+      allow read: if isSuperAdmin()
+        || isBusinessAdmin(resource.data.businessId)
+        || isManager(resource.data.businessId, resource.data.branchId)
+        || isOwner(resource.data.userId);
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /attendance/{id} {
+      allow read: if isSuperAdmin()
+        || isBusinessAdmin(resource.data.businessId)
+        || isManager(resource.data.businessId, resource.data.branchId)
+        || isOwner(resource.data.userId);
+      allow create, update: if isOwner(request.resource.data.userId) || isBusinessAdmin(resource.data.businessId);
+    }
+
+    match /notifications/{id} {
+      allow read, update: if isOwner(resource.data.recipientUserId) || isSuperAdmin();
+      allow create: if signedIn();
+    }
+
+    match /auditLogs/{id} {
+      allow read: if isSuperAdmin() || isBusinessAdmin(resource.data.businessId);
+      allow create: if signedIn();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -45,6 +45,7 @@ app.*.map.json
 /android/app/release
 /android/build/
 /android/.gradle/
+/releases/
 
 # Widget Preview related
 .widget_preview/

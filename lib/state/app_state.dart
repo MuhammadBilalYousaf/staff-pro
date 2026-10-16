@@ -89,7 +89,23 @@ class StaffProController extends ChangeNotifier {
   }
 
   Future<void> _save() async {
-    await _db.persist(includePlatform: currentUser?.role == UserRole.superAdmin);
+    await _db.persist(
+      includePlatform: currentUser?.role == UserRole.superAdmin,
+      asRole: currentUser?.role,
+      asUserId: currentUser?.id,
+    );
+    notifyListeners();
+  }
+
+  /// Login/logout must not rewrite the whole cache — that trips security rules
+  /// for roles that can read org data but cannot write every collection.
+  Future<void> _persistLoginAudit() async {
+    if (_db.auditLogs.isEmpty) return;
+    try {
+      await _db.upsertAuditLog(_db.auditLogs.last);
+    } catch (_) {
+      // Audit is best-effort; never block auth on rules/network.
+    }
     notifyListeners();
   }
 
@@ -329,7 +345,7 @@ class StaffProController extends ChangeNotifier {
       await prefs.setString(AppConstants.selectedBranchKey, selectedBranchId!);
     }
     _audit(AuditAction.login, 'auth', newData: user.email);
-    await _save();
+    await _persistLoginAudit();
   }
 
   Future<String?> rememberedEmail() async {
@@ -340,12 +356,8 @@ class StaffProController extends ChangeNotifier {
   Future<void> logout() async {
     final user = currentUser;
     if (user != null) {
-      try {
-        _audit(AuditAction.logout, 'auth');
-        await _db.persist(includePlatform: user.role == UserRole.superAdmin);
-      } catch (_) {
-        // Never block sign-out on a persistence/rules hiccup.
-      }
+      _audit(AuditAction.logout, 'auth');
+      await _persistLoginAudit();
     }
     currentUser = null;
     selectedBranchId = null;
@@ -392,7 +404,11 @@ class StaffProController extends ChangeNotifier {
     await _db.markBootstrapComplete();
     await _db.loadForUser(user);
     _audit(AuditAction.create, 'auth', recordId: user.id, newData: user.email, actor: user);
-    await _db.persist(includePlatform: true);
+    await _db.persist(
+      includePlatform: true,
+      asRole: UserRole.superAdmin,
+      asUserId: user.id,
+    );
     currentUser = user;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(AppConstants.sessionUserKey, user.id);

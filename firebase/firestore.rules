@@ -119,7 +119,9 @@ service cloud.firestore {
       allow read: if isSuperAdmin()
         || isBusinessAdmin(bizId)
         || (signedIn() && userExists() && userDoc().businessId == bizId);
-      allow create, update: if isSuperAdmin();
+      allow create: if isSuperAdmin();
+      // Business admins may update their own business profile (not create new ones).
+      allow update: if isSuperAdmin() || isBusinessAdmin(bizId);
       allow delete: if false;
     }
 

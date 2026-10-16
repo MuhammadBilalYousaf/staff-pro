@@ -171,12 +171,31 @@ class FirestoreDatabase {
     passwordRequests.clear();
   }
 
-  /// Persists the full in-memory snapshot for entities that changed in this session.
+  /// Writes a single audit log (e.g. login/logout) without rewriting other collections.
+  Future<void> upsertAuditLog(AuditLog log) async {
+    await _fs.collection(FirestorePaths.auditLogs).doc(log.id).set(log.toJson(), SetOptions(merge: true));
+  }
+
+  /// Persists the in-memory snapshot, scoped to what [asRole] is allowed to write.
   ///
   /// [includePlatform] must be true only for Super Admin — platform docs are
   /// locked down in security rules.
-  Future<void> persist({bool includePlatform = false}) async {
+  ///
+  /// Without role scoping, login/save re-wrote every loaded doc and failed with
+  /// permission-denied for Business Admin / Manager / Employee (e.g. `businesses`
+  /// is not writable by managers/employees).
+  Future<void> persist({
+    bool includePlatform = false,
+    UserRole? asRole,
+    String? asUserId,
+  }) async {
     final errors = <String>[];
+    final role = asRole;
+    final uid = asUserId;
+    final isSa = role == UserRole.superAdmin;
+    final isBa = role == UserRole.businessAdmin;
+    final isMgr = role == UserRole.manager;
+    final canWriteOrg = isSa || isBa || role == null;
 
     Future<void> section(String name, Future<void> Function() body) async {
       try {
@@ -186,7 +205,7 @@ class FirestoreDatabase {
       }
     }
 
-    if (includePlatform) {
+    if (includePlatform && (isSa || role == null)) {
       await section('platform', () async {
         await _fs.collection(FirestorePaths.platform).doc(FirestorePaths.settingsDoc).set(
               settings.toJson(),
@@ -199,40 +218,60 @@ class FirestoreDatabase {
       });
     }
 
+    // Users: elevated roles write their scoped list; others only their own profile.
+    final usersToWrite = (isSa || isBa || role == null)
+        ? users
+        : isMgr
+            ? users.where((u) => u.id == uid || u.role == UserRole.employee)
+            : users.where((u) => u.id == uid);
     await section(
       'users',
-      () => _upsertAll(FirestorePaths.users, users.map((e) => MapEntry(e.id, e.toFirestore()))),
+      () => _upsertAll(FirestorePaths.users, usersToWrite.map((e) => MapEntry(e.id, e.toFirestore()))),
     );
-    await section(
-      'businesses',
-      () => _upsertAll(FirestorePaths.businesses, businesses.map((e) => MapEntry(e.id, e.toJson()))),
-    );
-    await section(
-      'branches',
-      () => _upsertAll(FirestorePaths.branches, branches.map((e) => MapEntry(e.id, e.toJson()))),
-    );
-    await section(
-      'shifts',
-      () => _upsertAll(FirestorePaths.shifts, shifts.map((e) => MapEntry(e.id, e.toJson()))),
-    );
+
+    if (canWriteOrg) {
+      await section(
+        'businesses',
+        () => _upsertAll(FirestorePaths.businesses, businesses.map((e) => MapEntry(e.id, e.toJson()))),
+      );
+      await section(
+        'branches',
+        () => _upsertAll(FirestorePaths.branches, branches.map((e) => MapEntry(e.id, e.toJson()))),
+      );
+      await section(
+        'shifts',
+        () => _upsertAll(FirestorePaths.shifts, shifts.map((e) => MapEntry(e.id, e.toJson()))),
+      );
+    }
+
+    // Sales / expenses / attendance: non-elevated roles may only write own rows.
+    final ownOnly = !canWriteOrg && uid != null;
+    final salesToWrite = ownOnly ? sales.where((e) => e.userId == uid) : sales;
+    final expensesToWrite = ownOnly ? expenses.where((e) => e.userId == uid) : expenses;
+    final attendanceToWrite = ownOnly ? attendance.where((e) => e.userId == uid) : attendance;
+
     await section(
       'sales',
-      () => _upsertAll(FirestorePaths.sales, sales.map((e) => MapEntry(e.id, e.toJson()))),
+      () => _upsertAll(FirestorePaths.sales, salesToWrite.map((e) => MapEntry(e.id, e.toJson()))),
     );
     await section(
       'expenses',
-      () => _upsertAll(FirestorePaths.expenses, expenses.map((e) => MapEntry(e.id, e.toJson()))),
+      () => _upsertAll(FirestorePaths.expenses, expensesToWrite.map((e) => MapEntry(e.id, e.toJson()))),
     );
-    await section(
-      'expenseCategories',
-      () => _upsertAll(
-            FirestorePaths.expenseCategories,
-            expenseCategories.map((e) => MapEntry(e.id, e.toJson())),
-          ),
-    );
+
+    if (canWriteOrg || isMgr) {
+      await section(
+        'expenseCategories',
+        () => _upsertAll(
+              FirestorePaths.expenseCategories,
+              expenseCategories.map((e) => MapEntry(e.id, e.toJson())),
+            ),
+      );
+    }
+
     await section(
       'attendance',
-      () => _upsertAll(FirestorePaths.attendance, attendance.map((e) => MapEntry(e.id, e.toJson()))),
+      () => _upsertAll(FirestorePaths.attendance, attendanceToWrite.map((e) => MapEntry(e.id, e.toJson()))),
     );
     await section(
       'notifications',
@@ -245,17 +284,23 @@ class FirestoreDatabase {
       'auditLogs',
       () => _upsertAll(FirestorePaths.auditLogs, auditLogs.map((e) => MapEntry(e.id, e.toJson()))),
     );
-    await section(
-      'assignments',
-      () => _upsertAll(FirestorePaths.assignments, assignments.map((e) => MapEntry(e.id, e.toJson()))),
-    );
-    await section(
-      'passwordRequests',
-      () => _upsertAll(
-            FirestorePaths.passwordRequests,
-            passwordRequests.map((e) => MapEntry(e.id, e.toJson())),
-          ),
-    );
+
+    if (canWriteOrg) {
+      await section(
+        'assignments',
+        () => _upsertAll(FirestorePaths.assignments, assignments.map((e) => MapEntry(e.id, e.toJson()))),
+      );
+    }
+
+    if (canWriteOrg || isMgr || role == UserRole.employee) {
+      await section(
+        'passwordRequests',
+        () => _upsertAll(
+              FirestorePaths.passwordRequests,
+              passwordRequests.map((e) => MapEntry(e.id, e.toJson())),
+            ),
+      );
+    }
 
     if (errors.isNotEmpty) {
       throw StateError('Firestore persist failed → ${errors.join(' | ')}');

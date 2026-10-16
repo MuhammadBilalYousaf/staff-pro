@@ -15,7 +15,6 @@ import 'package:staffpro/features/shells/app_shell.dart';
 import 'package:staffpro/models/enums.dart';
 import 'package:staffpro/models/models.dart';
 import 'package:staffpro/state/app_state.dart';
-import 'package:uuid/uuid.dart';
 
 PeriodFilter periodFrom(String label) {
   switch (label) {
@@ -1185,11 +1184,17 @@ class _PersonFormScreenState extends State<PersonFormScreen> {
                 outlined: true,
                 icon: Icons.lock_reset,
                 onPressed: () async {
-                  final temp = const Uuid().v4().substring(0, 8);
-                  final ok = await confirmAction(context, title: 'Reset password?', message: 'A new temporary password will be set: $temp');
+                  final ok = await confirmAction(
+                    context,
+                    title: 'Reset password?',
+                    message: 'A Firebase password-reset email will be sent to ${_existing!.email}.',
+                  );
                   if (ok && context.mounted) {
-                    await app.resetAccess(_existing!.id, temp);
-                    if (context.mounted) showToast(context, 'Temporary password: $temp');
+                    final result = await app.resetAccess(_existing!.id, '');
+                    if (context.mounted) {
+                      final email = result.startsWith('EMAIL_SENT:') ? result.substring(11) : _existing!.email;
+                      showToast(context, 'Reset email sent to $email');
+                    }
                   }
                 },
               ),
@@ -1769,18 +1774,20 @@ class PasswordRequestsScreen extends StatelessWidget {
                               child: AppButton(
                                 label: 'Reset password',
                                 onPressed: () async {
-                                  final temp = 'Temp${DateTime.now().millisecondsSinceEpoch % 100000}';
                                   final ok = await confirmAction(
                                     context,
                                     title: 'Reset password?',
-                                    message: 'A temporary password will be set for ${user?.fullName ?? req.email}:\n\n$temp',
-                                    confirmLabel: 'Reset',
+                                    message:
+                                        'Send a Firebase password-reset email to ${user?.fullName ?? req.email} (${req.email})?',
+                                    confirmLabel: 'Send email',
                                   );
                                   if (!ok || !context.mounted) return;
                                   try {
-                                    await app.resetAccess(req.userId, temp);
+                                    final result = await app.resetAccess(req.userId, '');
                                     if (context.mounted) {
-                                      showToast(context, 'Password reset. Temp: $temp');
+                                      final email =
+                                          result.startsWith('EMAIL_SENT:') ? result.substring(11) : req.email;
+                                      showToast(context, 'Reset email sent to $email');
                                     }
                                   } catch (e) {
                                     if (context.mounted) showToast(context, e.toString(), error: true);

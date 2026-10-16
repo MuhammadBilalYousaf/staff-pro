@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "965645863051",
+    "project_id": "turknroll-management-app",
+    "storage_bucket": "turknroll-management-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:965645863051:android:cddd2c99dea5b326966c8e",
+        "android_client_info": {
+          "package_name": "com.staffpro.staffpro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyArf9hzvQuVWLwrBYdXAE_F9OXaT8DEQwg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:965645863051:android:dfa4b13ed61a39e5966c8e",
+        "android_client_info": {
+          "package_name": "turknroll_andriod.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyArf9hzvQuVWLwrBYdXAE_F9OXaT8DEQwg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

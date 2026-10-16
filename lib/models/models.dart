@@ -134,6 +134,14 @@ class AppUser {
         'updatedAt': updatedAt.toIso8601String(),
       };
 
+  /// Firestore profile — Auth owns credentials; never store password material.
+  Map<String, dynamic> toFirestore() {
+    final json = toJson();
+    json.remove('passwordHash');
+    json.remove('passwordSalt');
+    return json;
+  }
+
   factory AppUser.fromJson(Map<String, dynamic> json) {
     return AppUser(
       id: _s(json['id']),
@@ -152,9 +160,7 @@ class AppUser {
       status: _enumFrom(EntityStatus.values, json['status']?.toString(), EntityStatus.active),
       photoPath: json['photoPath']?.toString(),
       permissions: AdminPermissions.fromJson(
-        json['permissions'] is Map<String, dynamic>
-            ? json['permissions'] as Map<String, dynamic>
-            : null,
+        json['permissions'] is Map ? Map<String, dynamic>.from(json['permissions'] as Map) : null,
       ),
       isOwner: _b(json['isOwner']),
       createdAt: _dt(json['createdAt']) ?? DateTime.now(),

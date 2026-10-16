@@ -54,22 +54,30 @@ Passwords are hashed (never stored as plaintext). Historical records are kept wh
 
 ## Firebase
 
-The app ships with a **local encrypted-session + JSON store** that uses the same models, authorization checks and collection shape as Firestore, so you can run it immediately.
+Connected to project **`turknroll-management-app`**.
 
-To move to Firebase:
+| Service | Status |
+| --- | --- |
+| Authentication | Email/Password (Spark / free) |
+| Cloud Firestore | StaffPro-only schema + role rules (legacy data wiped) |
+| Storage | Not used (avoids Blaze billing) |
+| Flutter config | `lib/firebase_options.dart`, `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist` |
 
-1. Create a Firebase project.
-2. Enable Authentication (email/password), Firestore, Storage, Cloud Messaging.
-3. Run `flutterfire configure`.
-4. Deploy `firebase/firestore.rules`.
-5. Replace `LocalDatabase` with Firestore repositories behind the same `StaffProController` methods.
+### Deploy rules / indexes
+
+```bash
+firebase use turknroll-management-app
+firebase deploy --only firestore,storage
+```
+
+Schema reference: `firebase/SCHEMA.md`.
 
 Do not skip security rules — UI hiding is not authorization.
 
 ## Architecture
 
 ```
-UI → StaffProController → LocalDatabase / Firebase → persistence
+UI → StaffProController → Firebase Auth + FirestoreDatabase → Cloud Firestore
 ```
 
-Role, business and branch checks run in the controller (and in `firestore.rules` for production).
+Role, business and branch checks run in the controller and in `firestore.rules`.

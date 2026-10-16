@@ -2,10 +2,10 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:staffpro/core/constants/app_constants.dart';
 import 'package:staffpro/core/errors/app_exception.dart';
-import 'package:staffpro/core/utils/crypto_utils.dart';
-import 'package:staffpro/data/local_database.dart';
+import 'package:staffpro/data/firestore_database.dart';
 import 'package:staffpro/models/enums.dart';
 import 'package:staffpro/models/models.dart';
+import 'package:staffpro/services/firebase_auth_service.dart';
 import 'package:staffpro/services/location_service.dart';
 import 'package:uuid/uuid.dart';
 
@@ -38,10 +38,12 @@ class PeriodFilter {
 }
 
 class StaffProController extends ChangeNotifier {
-  StaffProController(this._db, this._location);
+  StaffProController(this._db, this._location, {FirebaseAuthService? auth})
+      : _auth = auth ?? FirebaseAuthService();
 
-  final LocalDatabase _db;
+  final FirestoreDatabase _db;
   final LocationService _location;
+  final FirebaseAuthService _auth;
   final _uuid = const Uuid();
 
   AppUser? currentUser;
@@ -49,21 +51,26 @@ class StaffProController extends ChangeNotifier {
   bool bootstrapping = true;
   String? lastError;
 
-  LocalDatabase get db => _db;
+  FirestoreDatabase get db => _db;
   PlatformSettings get settings => _db.settings;
 
   Future<void> bootstrap() async {
     await _db.init();
     final prefs = await SharedPreferences.getInstance();
-    final sessionId = prefs.getString(AppConstants.sessionUserKey);
-    if (sessionId != null) {
-      final user = _userById(sessionId);
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser != null) {
+      final user = await _db.fetchUser(firebaseUser.uid);
       if (user != null && user.isActive) {
         currentUser = user;
+        await _db.loadForUser(user);
         selectedBranchId = prefs.getString(AppConstants.selectedBranchKey) ?? user.branchId;
         if (currentUser!.role == UserRole.manager || currentUser!.role == UserRole.employee) {
           selectedBranchId = currentUser!.branchId;
         }
+        await prefs.setString(AppConstants.sessionUserKey, user.id);
+      } else {
+        await _auth.signOut();
+        await prefs.remove(AppConstants.sessionUserKey);
       }
     }
     _flagMissingCheckouts();
@@ -82,7 +89,7 @@ class StaffProController extends ChangeNotifier {
   }
 
   Future<void> _save() async {
-    await _db.persist();
+    await _db.persist(includePlatform: currentUser?.role == UserRole.superAdmin);
     notifyListeners();
   }
 
@@ -291,14 +298,21 @@ class StaffProController extends ChangeNotifier {
   }
 
   Future<void> login(String email, String password, {bool remember = true}) async {
-    final user = userByEmail(email);
-    if (user == null || !CryptoUtils.verify(password, user.passwordSalt, user.passwordHash)) {
-      throw AuthException('Invalid email or password.');
+    final cred = await _auth.signIn(email, password);
+    final uid = cred.user?.uid;
+    if (uid == null) throw AuthException('Invalid email or password.');
+    final user = await _db.fetchUser(uid);
+    if (user == null) {
+      await _auth.signOut();
+      throw AuthException('User profile not found. Contact your administrator.');
     }
     _assertActive(user);
+    await _db.loadForUser(user);
     if (user.role != UserRole.superAdmin) {
       final biz = businessById(user.businessId);
       if (biz == null || biz.status != EntityStatus.active) {
+        await _auth.signOut();
+        await _db.clearSessionCache();
         throw AuthException('This business is not active.');
       }
     }
@@ -326,13 +340,22 @@ class StaffProController extends ChangeNotifier {
   Future<void> logout() async {
     final user = currentUser;
     if (user != null) {
-      _audit(AuditAction.logout, 'auth');
+      try {
+        _audit(AuditAction.logout, 'auth');
+        await _db.persist(includePlatform: user.role == UserRole.superAdmin);
+      } catch (_) {
+        // Never block sign-out on a persistence/rules hiccup.
+      }
     }
     currentUser = null;
     selectedBranchId = null;
+    await _db.clearSessionCache();
+    try {
+      await _auth.signOut();
+    } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(AppConstants.sessionUserKey);
-    await _save();
+    notifyListeners();
   }
 
   Future<void> signupSuperAdmin({
@@ -342,25 +365,39 @@ class StaffProController extends ChangeNotifier {
     required String confirm,
     required String secretCode,
   }) async {
-    if (secretCode.trim() != settings.secretCode) {
+    final publicSecret = await _db.readPublicSecretCode();
+    if (secretCode.trim() != publicSecret && secretCode.trim() != settings.secretCode) {
       throw AuthException('Invalid secret registration code.');
     }
-    if (userByEmail(email) != null) {
-      throw ValidationException('An account with this email already exists.');
+    if (!await _db.isBootstrapOpen()) {
+      throw AuthException('Super Admin registration is closed.');
     }
     if (password != confirm) throw ValidationException('Passwords do not match.');
-    final salt = CryptoUtils.randomSalt();
+    final existing = await _db.fetchUserByEmail(email);
+    if (existing != null) {
+      throw ValidationException('An account with this email already exists.');
+    }
+    final cred = await _auth.signUp(email, password);
+    final uid = cred.user?.uid;
+    if (uid == null) throw AuthException('Failed to create account.');
     final user = AppUser(
-      id: _uuid.v4(),
+      id: uid,
       fullName: fullName.trim(),
       email: email.trim().toLowerCase(),
-      passwordHash: CryptoUtils.hashPassword(password, salt),
-      passwordSalt: salt,
+      passwordHash: '',
+      passwordSalt: '',
       role: UserRole.superAdmin,
     );
-    _db.users.add(user);
+    await _db.upsertUser(user);
+    await _db.markBootstrapComplete();
+    await _db.loadForUser(user);
     _audit(AuditAction.create, 'auth', recordId: user.id, newData: user.email, actor: user);
-    await _save();
+    await _db.persist(includePlatform: true);
+    currentUser = user;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppConstants.sessionUserKey, user.id);
+    await prefs.setString(AppConstants.rememberMeKey, user.email);
+    notifyListeners();
   }
 
   Future<void> changePassword({
@@ -369,12 +406,8 @@ class StaffProController extends ChangeNotifier {
     required String confirm,
   }) async {
     final user = requireUser();
-    if (!CryptoUtils.verify(current, user.passwordSalt, user.passwordHash)) {
-      throw AuthException('Current password is incorrect.');
-    }
     if (next != confirm) throw ValidationException('Passwords do not match.');
-    user.passwordSalt = CryptoUtils.randomSalt();
-    user.passwordHash = CryptoUtils.hashPassword(next, user.passwordSalt);
+    await _auth.changePassword(email: user.email, current: current, next: next);
     user.updatedAt = DateTime.now();
     _audit(AuditAction.passwordChange, 'profile');
     await _save();
@@ -432,7 +465,7 @@ class StaffProController extends ChangeNotifier {
   }) async {
     final actor = requireUser();
     if (actor.role != UserRole.superAdmin) throw ForbiddenException();
-    if (userByEmail(adminEmail) != null) {
+    if (userByEmail(adminEmail) != null || await _db.fetchUserByEmail(adminEmail) != null) {
       throw ValidationException('Admin email is already in use.');
     }
     if (code.trim().isNotEmpty && _db.businesses.any((b) => b.code.toLowerCase() == code.trim().toLowerCase())) {
@@ -450,14 +483,14 @@ class StaffProController extends ChangeNotifier {
       status: status,
       createdBy: actor.id,
     );
-    final salt = CryptoUtils.randomSalt();
+    final adminUid = await _auth.createAuthUser(email: adminEmail, password: adminPassword);
     final admin = AppUser(
-      id: _uuid.v4(),
+      id: adminUid,
       fullName: adminName.trim(),
       email: adminEmail.trim().toLowerCase(),
       phone: adminPhone.trim(),
-      passwordHash: CryptoUtils.hashPassword(adminPassword, salt),
-      passwordSalt: salt,
+      passwordHash: '',
+      passwordSalt: '',
       role: UserRole.businessAdmin,
       businessId: business.id,
       isOwner: true,
@@ -551,7 +584,7 @@ class StaffProController extends ChangeNotifier {
     bool isOwner = false,
   }) async {
     final actor = requireUser();
-    if (userByEmail(email) != null) {
+    if (userByEmail(email) != null || await _db.fetchUserByEmail(email) != null) {
       throw ValidationException('An account with this email already exists.');
     }
     if (!canCreateRole(role)) {
@@ -598,14 +631,14 @@ class StaffProController extends ChangeNotifier {
       if (exists) throw ValidationException('Employee / Manager ID must be unique.');
     }
 
-    final salt = CryptoUtils.randomSalt();
+    final uid = await _auth.createAuthUser(email: email, password: password);
     final user = AppUser(
-      id: _uuid.v4(),
+      id: uid,
       fullName: fullName.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
-      passwordHash: CryptoUtils.hashPassword(password, salt),
-      passwordSalt: salt,
+      passwordHash: '',
+      passwordSalt: '',
       role: role,
       businessId: bizId,
       branchId: branchId,
@@ -707,8 +740,8 @@ class StaffProController extends ChangeNotifier {
         throw ForbiddenException('You cannot reset access for an equal or higher role.');
       }
     }
-    user.passwordSalt = CryptoUtils.randomSalt();
-    user.passwordHash = CryptoUtils.hashPassword(newPassword, user.passwordSalt);
+    // Client SDK cannot set another user's Auth password — send Firebase reset email.
+    await _auth.sendPasswordResetEmail(user.email);
     user.updatedAt = DateTime.now();
     for (final req in _db.passwordRequests.where((r) => r.userId == userId && r.status == PasswordResetStatus.pending)) {
       req.status = PasswordResetStatus.completed;
@@ -719,12 +752,12 @@ class StaffProController extends ChangeNotifier {
       recipientUserId: user.id,
       type: NotificationType.passwordResetRequest,
       title: 'Password reset',
-      message: 'Your password was reset by ${actor.fullName}. Sign in with the new password.',
+      message: 'A password reset email was sent by ${actor.fullName}. Check your inbox.',
       businessId: user.businessId,
     );
     _audit(AuditAction.resetAccess, 'auth', businessId: user.businessId, recordId: user.id);
     await _save();
-    return newPassword;
+    return 'EMAIL_SENT:${user.email}';
   }
 
   Future<void> transferBranch({
@@ -1338,14 +1371,22 @@ class StaffProController extends ChangeNotifier {
   }
 
   Future<void> submitPasswordRequest({required String email, String message = ''}) async {
-    final user = userByEmail(email);
-    if (user == null) {
-      throw AuthException('If this email exists, a request will be sent to the authorized manager or admin.');
+    // Firebase Auth reset email works without a session and does not leak account existence.
+    try {
+      await _auth.sendPasswordResetEmail(email);
+    } catch (_) {
+      // Ignore Auth errors for privacy when email is unknown.
     }
+
+    // In-app request trail is only available when an admin/manager session is loaded.
+    if (currentUser == null) return;
+
+    final user = userByEmail(email) ?? await _db.fetchUserByEmail(email);
+    if (user == null) return;
     final existing = _db.passwordRequests.any(
       (r) => r.userId == user.id && r.status == PasswordResetStatus.pending,
     );
-    if (existing) throw ValidationException('A password request is already pending.');
+    if (existing) return;
     final req = PasswordResetRequest(
       id: _uuid.v4(),
       userId: user.id,

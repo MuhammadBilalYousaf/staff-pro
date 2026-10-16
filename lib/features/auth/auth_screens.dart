@@ -402,7 +402,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     try {
       await context.read<StaffProController>().submitPasswordRequest(email: _email.text, message: _message.text);
       if (!mounted) return;
-      showToast(context, 'Request sent to the authorized manager or admin.');
+      showToast(context, 'If this email exists, a password reset link has been sent.');
       context.pop();
     } catch (e) {
       if (mounted) showToast(context, e.toString(), error: true);
@@ -423,7 +423,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           const Text('Password recovery', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           const Text(
-            'Your request will be sent to the assigned Manager or Business Admin. You will be notified once it is reset.',
+            'We will email you a Firebase password-reset link if this address has an account. Managers and admins can also help from Password Requests.',
             textAlign: TextAlign.center,
             style: TextStyle(color: AppColors.muted),
           ),

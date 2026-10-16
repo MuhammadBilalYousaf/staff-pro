@@ -8,7 +8,6 @@ import 'package:staffpro/core/validators/validators.dart';
 import 'package:staffpro/core/widgets/ui_kit.dart';
 import 'package:staffpro/features/shells/app_shell.dart';
 import 'package:staffpro/models/enums.dart';
-import 'package:staffpro/models/models.dart';
 import 'package:staffpro/state/app_state.dart';
 
 class SuperAdminDashboard extends StatelessWidget {
@@ -69,7 +68,7 @@ class SuperAdminDashboard extends StatelessWidget {
                   ActionChip(label: const Text('Businesses'), onPressed: () => context.go('/sa/businesses')),
                   ActionChip(label: const Text('Admins'), onPressed: () => context.push('/sa/admins')),
                   ActionChip(label: const Text('Reports'), onPressed: () => context.go('/sa/reports')),
-                  ActionChip(label: Text('Managers ($managers)'), onPressed: () => context.push('/sa/admins')),
+                  ActionChip(label: Text('Managers ($managers)'), onPressed: () => context.push('/sa/managers')),
                 ],
               ),
             ),
@@ -487,11 +486,18 @@ class BusinessDetailsScreen extends StatelessWidget {
         ...branches.map((b) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: AppCard(
+                onTap: () => context.push('/sa/business/$bizId/branch/${b.id}/edit'),
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(b.name),
-                  subtitle: Text(b.address),
-                  trailing: StatusBadge.active(b.status == EntityStatus.active),
+                  subtitle: Text(
+                    [
+                      if (b.address.isNotEmpty) b.address,
+                      if (b.hasLocation) 'GPS set · ${b.geofenceRadius.round()}m range',
+                      if (!b.hasLocation) 'No GPS pin yet',
+                    ].join(' · '),
+                  ),
+                  trailing: const Icon(Icons.edit_outlined, size: 18),
                 ),
               ),
             )),
@@ -507,21 +513,27 @@ class BusinessAdminsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<StaffProController>();
     final isSuper = app.currentUser?.role == UserRole.superAdmin;
-    final admins = app.usersWhere(
-      role: UserRole.businessAdmin,
-      businessId: isSuper ? null : app.currentUser?.businessId,
-    );
+    // Only true Admins (full access / owner) — not limited emp-access accounts.
+    final admins = app
+        .usersWhere(
+          role: UserRole.businessAdmin,
+          businessId: isSuper ? null : app.currentUser?.businessId,
+        )
+        .where((a) => a.isOwner || a.permissions.fullAccess)
+        .toList();
     return Scaffold(
       appBar: AppBar(title: const Text('Business Admins')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push(isSuper ? '/sa/admins/add' : '/ba/admins/add'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        label: const Text('Add Admin'),
-        icon: const Icon(Icons.add),
-      ),
+      floatingActionButton: app.canManageAdmins
+          ? FloatingActionButton.extended(
+              onPressed: () => context.push(isSuper ? '/sa/admins/add' : '/ba/admins/add'),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              label: const Text('Add Admin / Staff'),
+              icon: const Icon(Icons.add),
+            )
+          : null,
       body: admins.isEmpty
-          ? const EmptyView(title: 'No admins yet')
+          ? const EmptyView(title: 'No admins yet', subtitle: 'Add Admin / Manager / Employee with the correct access level.')
           : ListView.builder(
               padding: const EdgeInsets.all(20),
               itemCount: admins.length,
@@ -535,7 +547,15 @@ class BusinessAdminsScreen extends StatelessWidget {
                       title: Text(a.fullName),
                       subtitle: Text('${app.businessName(a.businessId)}\n${a.email}'),
                       isThreeLine: true,
-                      trailing: StatusBadge.active(a.isActive),
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const StatusBadge(label: 'Admin', color: AppColors.primary),
+                          const SizedBox(height: 4),
+                          StatusBadge.active(a.isActive),
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -553,14 +573,14 @@ class AddAdminScreen extends StatefulWidget {
 }
 
 class _AddAdminScreenState extends State<AddAdminScreen> {
+  final _form = GlobalKey<FormState>();
   String? businessId;
+  String? branchId;
+  UserRole accessLevel = UserRole.businessAdmin;
   final name = TextEditingController();
   final email = TextEditingController();
   final phone = TextEditingController();
   final password = TextEditingController();
-  bool full = true;
-  bool emp = true;
-  bool branch = true;
   bool loading = false;
 
   @override
@@ -569,6 +589,10 @@ class _AddAdminScreenState extends State<AddAdminScreen> {
     final app = context.read<StaffProController>();
     if (app.currentUser?.role == UserRole.businessAdmin) {
       businessId = app.currentUser?.businessId;
+    }
+    branchId = app.effectiveBranchId;
+    if (!app.canCreateRole(UserRole.businessAdmin)) {
+      accessLevel = app.canCreateRole(UserRole.manager) ? UserRole.manager : UserRole.employee;
     }
   }
 
@@ -587,63 +611,113 @@ class _AddAdminScreenState extends State<AddAdminScreen> {
     final businesses = app.currentUser?.role == UserRole.superAdmin
         ? app.db.businesses
         : app.db.businesses.where((b) => b.id == app.currentUser?.businessId).toList();
+    final selectedBusiness = businessId ?? (businesses.length == 1 ? businesses.first.id : null);
+    final branches = app.branchesFor(selectedBusiness, activeOnly: true);
+    final needsBranch = accessLevel == UserRole.manager || accessLevel == UserRole.employee;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Business Admin')),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          DropdownButtonFormField<String>(
-            initialValue: businessId ?? (businesses.isNotEmpty ? businesses.first.id : null),
-            decoration: const InputDecoration(labelText: 'Business'),
-            items: businesses.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
-            onChanged: (v) => setState(() => businessId = v),
-          ),
-          const SizedBox(height: 14),
-          AppTextField(label: 'Full Name', controller: name, hint: 'Enter name', prefix: Icons.person_outline),
-          const SizedBox(height: 14),
-          AppTextField(label: 'Email', controller: email, hint: 'Enter email', prefix: Icons.mail_outline),
-          const SizedBox(height: 14),
-          AppTextField(label: 'Phone', controller: phone, hint: 'Enter phone', prefix: Icons.phone_outlined),
-          const SizedBox(height: 14),
-          AppTextField(label: 'Password', controller: password, hint: 'Temporary password', prefix: Icons.lock_outline, obscure: true),
-          const SizedBox(height: 16),
-          const Text('Permissions', style: TextStyle(fontWeight: FontWeight.w800)),
-          CheckboxListTile(value: full, onChanged: (v) => setState(() => full = v ?? true), title: const Text('Full Access')),
-          CheckboxListTile(value: emp, onChanged: (v) => setState(() => emp = v ?? true), title: const Text('Employee Management')),
-          CheckboxListTile(value: branch, onChanged: (v) => setState(() => branch = v ?? true), title: const Text('Branch Management')),
-          const SizedBox(height: 16),
-          AppButton(
-            label: 'Create Admin',
-            loading: loading,
-            onPressed: () async {
-              final selectedBusiness = businessId ?? (businesses.length == 1 ? businesses.first.id : null);
-              if (selectedBusiness == null) {
-                showToast(context, 'Select a business', error: true);
-                return;
-              }
-              setState(() => loading = true);
-              try {
-                await app.createStaff(
-                  role: UserRole.businessAdmin,
-                  fullName: name.text,
-                  email: email.text,
-                  phone: phone.text,
-                  password: password.text,
-                  businessId: selectedBusiness,
-                  permissions: AdminPermissions(fullAccess: full, employeeManagement: emp, branchManagement: branch),
-                );
-                if (context.mounted) {
-                  showToast(context, 'Admin created');
-                  context.pop();
+      appBar: AppBar(title: const Text('Add Staff')),
+      body: Form(
+        key: _form,
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            const Text('Access level', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            const Text(
+              'Only Admin, Manager, or Employee. Lower roles cannot create higher roles.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            ...[
+              if (app.canCreateRole(UserRole.businessAdmin)) UserRole.businessAdmin,
+              if (app.canCreateRole(UserRole.manager)) UserRole.manager,
+              if (app.canCreateRole(UserRole.employee)) UserRole.employee,
+            ].map(
+              (role) => RadioListTile<UserRole>(
+                value: role,
+                groupValue: accessLevel,
+                onChanged: (v) => setState(() => accessLevel = v!),
+                title: Text(role == UserRole.businessAdmin ? 'Admin' : roleLabel(role)),
+                subtitle: Text(
+                  role == UserRole.businessAdmin
+                      ? 'Full business access'
+                      : role == UserRole.manager
+                          ? 'Branch manager — cannot add Admins'
+                          : 'Employee — cannot add staff above them',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (app.currentUser?.role == UserRole.superAdmin)
+              DropdownButtonFormField<String>(
+                initialValue: selectedBusiness,
+                decoration: const InputDecoration(labelText: 'Business'),
+                items: businesses.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
+                validator: (v) => v == null ? 'Select a business' : null,
+                onChanged: (v) => setState(() {
+                  businessId = v;
+                  branchId = null;
+                }),
+              ),
+            if (needsBranch) ...[
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: branchId != null && branches.any((b) => b.id == branchId) ? branchId : null,
+                decoration: const InputDecoration(labelText: 'Branch'),
+                items: branches.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
+                validator: (v) => (v == null || v.isEmpty) ? 'Select a branch' : null,
+                onChanged: (v) => setState(() => branchId = v),
+              ),
+            ],
+            const SizedBox(height: 14),
+            AppTextField(label: 'Full Name', controller: name, hint: 'Enter name', prefix: Icons.person_outline, validator: (v) => Validators.requiredField(v, field: 'Name')),
+            const SizedBox(height: 14),
+            AppTextField(label: 'Email', controller: email, hint: 'Enter email', prefix: Icons.mail_outline, validator: Validators.email),
+            const SizedBox(height: 14),
+            AppTextField(label: 'Phone', controller: phone, hint: 'Enter phone', prefix: Icons.phone_outlined, validator: Validators.phone),
+            const SizedBox(height: 14),
+            AppTextField(label: 'Password', controller: password, hint: 'Temporary password', prefix: Icons.lock_outline, obscure: true, validator: (v) => Validators.password(v)),
+            const SizedBox(height: 16),
+            AppButton(
+              label: 'Create ${accessLevel == UserRole.businessAdmin ? 'Admin' : roleLabel(accessLevel)}',
+              loading: loading,
+              onPressed: () async {
+                if (!_form.currentState!.validate()) return;
+                if (selectedBusiness == null) {
+                  showToast(context, 'Select a business', error: true);
+                  return;
                 }
-              } catch (e) {
-                if (context.mounted) showToast(context, e.toString(), error: true);
-              } finally {
-                if (mounted) setState(() => loading = false);
-              }
-            },
-          ),
-        ],
+                if (!app.canCreateRole(accessLevel)) {
+                  showToast(context, 'You cannot create this access level', error: true);
+                  return;
+                }
+                setState(() => loading = true);
+                try {
+                  await app.createStaff(
+                    role: accessLevel,
+                    fullName: name.text,
+                    email: email.text,
+                    phone: phone.text,
+                    password: password.text,
+                    businessId: selectedBusiness,
+                    branchId: needsBranch ? branchId : null,
+                    position: accessLevel == UserRole.manager ? 'Branch Manager' : null,
+                  );
+                  if (context.mounted) {
+                    showToast(context, '${roleLabel(accessLevel)} created');
+                    context.pop();
+                  }
+                } catch (e) {
+                  if (context.mounted) showToast(context, e.toString(), error: true);
+                } finally {
+                  if (mounted) setState(() => loading = false);
+                }
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -676,10 +750,12 @@ class SuperAdminMoreScreen extends StatelessWidget {
                   MenuTile(icon: Icons.dashboard_outlined, label: 'Dashboard', onTap: () => context.go('/sa')),
                   MenuTile(icon: Icons.apartment_outlined, label: 'Businesses', onTap: () => context.go('/sa/businesses')),
                   MenuTile(icon: Icons.admin_panel_settings_outlined, label: 'Business Admins', onTap: () => context.push('/sa/admins')),
+                  MenuTile(icon: Icons.manage_accounts_outlined, label: 'Managers', onTap: () => context.push('/sa/managers')),
                   MenuTile(icon: Icons.bar_chart_rounded, label: 'Reports', onTap: () => context.go('/sa/reports')),
                   MenuTile(icon: Icons.notifications_none, label: 'Notifications', onTap: () => context.go('/sa/notifications')),
                   MenuTile(icon: Icons.history, label: 'Activity Logs', onTap: () => context.push('/sa/logs')),
                   MenuTile(icon: Icons.person_outline, label: 'Profile', onTap: () => context.push('/sa/profile')),
+                  MenuTile(icon: Icons.lock_outline, label: 'Change Password', onTap: () => context.push('/sa/password')),
                   MenuTile(icon: Icons.settings_outlined, label: 'Settings', onTap: () => context.push('/sa/settings')),
                   MenuTile(icon: Icons.help_outline, label: 'Help & Support', onTap: () => context.push('/sa/help')),
                   MenuTile(icon: Icons.info_outline, label: 'About App', onTap: () => context.push('/sa/about')),

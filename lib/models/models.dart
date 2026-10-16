@@ -537,6 +537,8 @@ class AttendanceRecord {
     this.checkInLongitude,
     this.checkOutLatitude,
     this.checkOutLongitude,
+    this.checkInDistanceMeters,
+    this.checkInAccuracyMeters,
     this.shiftId,
     this.workedMinutes,
     this.status = AttendanceStatus.present,
@@ -562,6 +564,8 @@ class AttendanceRecord {
   double? checkInLongitude;
   double? checkOutLatitude;
   double? checkOutLongitude;
+  double? checkInDistanceMeters;
+  double? checkInAccuracyMeters;
   String? shiftId;
   int? workedMinutes;
   AttendanceStatus status;
@@ -588,6 +592,8 @@ class AttendanceRecord {
         'checkInLongitude': checkInLongitude,
         'checkOutLatitude': checkOutLatitude,
         'checkOutLongitude': checkOutLongitude,
+        'checkInDistanceMeters': checkInDistanceMeters,
+        'checkInAccuracyMeters': checkInAccuracyMeters,
         'shiftId': shiftId,
         'workedMinutes': workedMinutes,
         'status': status.name,
@@ -614,6 +620,8 @@ class AttendanceRecord {
       checkInLongitude: _d(json['checkInLongitude']),
       checkOutLatitude: _d(json['checkOutLatitude']),
       checkOutLongitude: _d(json['checkOutLongitude']),
+      checkInDistanceMeters: _d(json['checkInDistanceMeters']),
+      checkInAccuracyMeters: _d(json['checkInAccuracyMeters']),
       shiftId: json['shiftId']?.toString(),
       workedMinutes: _i(json['workedMinutes']),
       status: _enumFrom(

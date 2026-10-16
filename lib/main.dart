@@ -18,9 +18,13 @@ Future<void> main() async {
       statusBarIconBrightness: Brightness.dark,
     ));
   }
+  final location = LocationService();
   final db = LocalDatabase.instance;
-  final controller = StaffProController(db, LocationService());
+  final controller = StaffProController(db, location);
   await controller.bootstrap();
+  // Request GPS after UI is up so cold start is not blocked by the permission dialog.
+  // ignore: unawaited_futures
+  location.ensurePermission();
   runApp(StaffProApp(controller: controller));
 }
 

@@ -17,8 +17,14 @@ GoRouter createRouter(StaffProController app) {
       final public = loc == '/login' || loc == '/signup' || loc == '/forgot-password' || loc == '/splash';
       if (app.bootstrapping) return loc == '/splash' ? null : '/splash';
       if (app.currentUser == null) return public ? null : '/login';
-      if (app.currentUser != null && (loc == '/login' || loc == '/signup' || loc == '/splash')) {
-        return _home(app.currentUser!.role);
+      final role = app.currentUser!.role;
+      if (loc == '/login' || loc == '/signup' || loc == '/splash' || loc == '/forgot-password') {
+        return _home(role);
+      }
+      // Keep each role inside its own route prefix.
+      final prefix = _prefix(role);
+      if (!loc.startsWith(prefix)) {
+        return _home(role);
       }
       return null;
     },
@@ -49,8 +55,18 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/sa/business/add', builder: (_, __) => const AddBusinessWizard()),
       GoRoute(path: '/sa/business/:id', builder: (_, s) => BusinessDetailsScreen(businessId: s.pathParameters['id']!)),
       GoRoute(path: '/sa/business/:id/branch/add', builder: (_, s) => BranchFormScreen(businessId: s.pathParameters['id'])),
+      GoRoute(
+        path: '/sa/business/:bizId/branch/:id/edit',
+        builder: (_, s) => BranchFormScreen(
+          businessId: s.pathParameters['bizId'],
+          branchId: s.pathParameters['id'],
+        ),
+      ),
       GoRoute(path: '/sa/admins', builder: (_, __) => const BusinessAdminsScreen()),
       GoRoute(path: '/sa/admins/add', builder: (_, __) => const AddAdminScreen()),
+      GoRoute(path: '/sa/managers', builder: (_, __) => const PeopleListScreen(role: UserRole.manager)),
+      GoRoute(path: '/sa/managers/add', builder: (_, __) => const PersonFormScreen(role: UserRole.manager)),
+      GoRoute(path: '/sa/managers/:id', builder: (_, s) => PersonFormScreen(role: UserRole.manager, userId: s.pathParameters['id'])),
       GoRoute(path: '/sa/logs', builder: (_, __) => const ActivityLogsScreen()),
       GoRoute(path: '/sa/profile', builder: (_, __) => const ProfileScreen()),
       GoRoute(path: '/sa/password', builder: (_, __) => const ChangePasswordScreen()),
@@ -95,6 +111,7 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/ba/categories', builder: (_, __) => const ExpenseCategoriesScreen()),
       GoRoute(path: '/ba/shifts', builder: (_, __) => const ShiftManagementScreen()),
       GoRoute(path: '/ba/logs', builder: (_, __) => const ActivityLogsScreen()),
+      GoRoute(path: '/ba/password-requests', builder: (_, __) => const PasswordRequestsScreen()),
       GoRoute(path: '/ba/profile', builder: (_, __) => const ProfileScreen()),
       GoRoute(path: '/ba/password', builder: (_, __) => const ChangePasswordScreen()),
       GoRoute(path: '/ba/business-profile', builder: (_, __) => const BusinessProfileScreen()),
@@ -125,6 +142,8 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/mg/expenses', builder: (_, __) => const ExpensesScreen()),
       GoRoute(path: '/mg/expenses/add', builder: (_, __) => const AddExpenseScreen()),
       GoRoute(path: '/mg/attendance/history', builder: (_, __) => const AttendanceHistoryScreen()),
+      GoRoute(path: '/mg/attendance/team', builder: (_, __) => const AttendanceHistoryScreen(team: true)),
+      GoRoute(path: '/mg/password-requests', builder: (_, __) => const PasswordRequestsScreen()),
       GoRoute(path: '/mg/reports', builder: (_, __) => const ReportsHubScreen()),
       GoRoute(path: '/mg/notifications', builder: (_, __) => const NotificationsScreen()),
       GoRoute(path: '/mg/profile', builder: (_, __) => const ProfileScreen()),
@@ -164,7 +183,9 @@ GoRouter createRouter(StaffProController app) {
   );
 }
 
-String _home(UserRole role) {
+String _home(UserRole role) => _prefix(role);
+
+String _prefix(UserRole role) {
   switch (role) {
     case UserRole.superAdmin:
       return '/sa';

@@ -164,11 +164,32 @@ class StaffProController extends ChangeNotifier {
     if (actor.id != userId) throw ForbiddenException('You can only access your own records.');
   }
 
+  static int roleRank(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return 4;
+      case UserRole.businessAdmin:
+        return 3;
+      case UserRole.manager:
+        return 2;
+      case UserRole.employee:
+        return 1;
+    }
+  }
+
+  bool get canManageAdmins {
+    final user = currentUser;
+    if (user == null) return false;
+    if (user.role == UserRole.superAdmin) return true;
+    return user.role == UserRole.businessAdmin && (user.isOwner || user.permissions.fullAccess);
+  }
+
   bool get canManageEmployees {
     final user = currentUser;
     if (user == null) return false;
-    if (user.role == UserRole.superAdmin || user.role == UserRole.businessAdmin) {
-      return user.role == UserRole.superAdmin || user.permissions.canManageEmployees;
+    if (user.role == UserRole.superAdmin) return true;
+    if (user.role == UserRole.businessAdmin) {
+      return user.isOwner || user.permissions.fullAccess || user.permissions.employeeManagement;
     }
     return user.role == UserRole.manager;
   }
@@ -176,15 +197,52 @@ class StaffProController extends ChangeNotifier {
   bool get canManageBranches {
     final user = currentUser;
     if (user == null) return false;
-    return user.role == UserRole.superAdmin ||
-        (user.role == UserRole.businessAdmin && user.permissions.canManageBranches);
+    if (user.role == UserRole.superAdmin) return true;
+    return user.role == UserRole.businessAdmin &&
+        (user.isOwner || user.permissions.fullAccess || user.permissions.branchManagement);
   }
 
   bool get canManageCategories {
     final user = currentUser;
     if (user == null) return false;
-    if (user.role == UserRole.businessAdmin) return user.permissions.canManageCategories;
+    if (user.role == UserRole.businessAdmin) {
+      return user.isOwner || user.permissions.fullAccess || user.permissions.manageCategories;
+    }
     if (user.role == UserRole.manager) return settings.allowManagerCategories;
+    return false;
+  }
+
+  /// Lower roles cannot create or edit equal/higher roles.
+  bool canCreateRole(UserRole role) {
+    final actor = currentUser;
+    if (actor == null || role == UserRole.superAdmin) return false;
+    if (actor.role == UserRole.superAdmin) return true;
+    if (role == UserRole.businessAdmin) return canManageAdmins;
+    if (role == UserRole.manager) {
+      // Only full Admin (not employee-only access) may add managers.
+      return canManageAdmins;
+    }
+    if (role == UserRole.employee) {
+      if (actor.role == UserRole.manager) return true;
+      return actor.role == UserRole.businessAdmin && canManageEmployees;
+    }
+    return false;
+  }
+
+  bool canEditUser(AppUser target) {
+    final actor = currentUser;
+    if (actor == null) return false;
+    if (actor.id == target.id) return true;
+    if (actor.role == UserRole.superAdmin) return true;
+    if (roleRank(target.role) >= roleRank(actor.role)) return false;
+    if (actor.role == UserRole.businessAdmin) {
+      if (target.businessId != actor.businessId) return false;
+      if (target.role == UserRole.businessAdmin) return canManageAdmins;
+      return canManageEmployees;
+    }
+    if (actor.role == UserRole.manager) {
+      return target.role == UserRole.employee && target.branchId == actor.branchId;
+    }
     return false;
   }
 
@@ -496,26 +554,40 @@ class StaffProController extends ChangeNotifier {
     if (userByEmail(email) != null) {
       throw ValidationException('An account with this email already exists.');
     }
+    if (!canCreateRole(role)) {
+      throw ForbiddenException('You cannot add a ${roleLabel(role)}. Lower roles cannot create higher roles.');
+    }
     String? bizId = businessId ?? actor.businessId;
+    late final AdminPermissions resolvedPermissions;
     if (role == UserRole.businessAdmin) {
-      if (actor.role != UserRole.superAdmin && actor.role != UserRole.businessAdmin) {
-        throw ForbiddenException();
-      }
       if (actor.role == UserRole.businessAdmin) bizId = actor.businessId;
+      // Admins are always full admin access — partial "emp admin" is not allowed.
+      resolvedPermissions = const AdminPermissions(
+        fullAccess: true,
+        employeeManagement: true,
+        branchManagement: true,
+        manageCategories: true,
+      );
     } else if (role == UserRole.manager || role == UserRole.employee) {
-      if (actor.role == UserRole.employee) throw ForbiddenException();
       if (actor.role == UserRole.manager) {
-        if (role != UserRole.employee) throw ForbiddenException();
         bizId = actor.businessId;
         branchId = actor.branchId;
-      }
-      if (actor.role == UserRole.businessAdmin && !actor.permissions.canManageEmployees) {
-        throw ForbiddenException();
       }
       if (branchId == null || branchId.isEmpty) {
         throw ValidationException('Branch assignment is required.');
       }
       assertBranchScope(actor, branchId);
+      // Super Admin may create managers/employees for any branch — derive business from it.
+      bizId ??= branchById(branchId)?.businessId;
+      if (bizId == null || bizId.isEmpty) {
+        throw ValidationException('Business context is missing for this branch.');
+      }
+      resolvedPermissions = const AdminPermissions(
+        fullAccess: false,
+        employeeManagement: false,
+        branchManagement: false,
+        manageCategories: false,
+      );
     } else {
       throw ForbiddenException();
     }
@@ -540,7 +612,7 @@ class StaffProController extends ChangeNotifier {
       employeeCode: employeeCode?.trim(),
       position: position,
       joiningDate: joiningDate,
-      permissions: permissions ?? const AdminPermissions(),
+      permissions: resolvedPermissions,
       isOwner: isOwner,
     );
     _db.users.add(user);
@@ -572,14 +644,15 @@ class StaffProController extends ChangeNotifier {
     final actor = requireUser();
     final existing = _userById(updated.id);
     if (existing == null) throw NotFoundException();
-    if (actor.role == UserRole.employee && actor.id != existing.id) throw ForbiddenException();
-    if (actor.role == UserRole.manager) {
-      if (existing.branchId != actor.branchId || existing.role != UserRole.employee) {
-        throw ForbiddenException();
-      }
+    if (!canEditUser(existing)) {
+      throw ForbiddenException('You cannot edit a higher or equal role.');
     }
     if (actor.role == UserRole.businessAdmin) {
       assertBusinessScope(actor, existing.businessId);
+    }
+    // Never allow elevating someone above what the actor can create.
+    if (updated.role != existing.role && !canCreateRole(updated.role)) {
+      throw ForbiddenException('You cannot change this person to ${roleLabel(updated.role)}.');
     }
     existing
       ..fullName = updated.fullName.trim()
@@ -587,7 +660,11 @@ class StaffProController extends ChangeNotifier {
       ..position = updated.position
       ..employeeCode = updated.employeeCode
       ..status = updated.status
-      ..permissions = updated.permissions
+      ..permissions = existing.role == UserRole.businessAdmin
+          ? (actor.role == UserRole.superAdmin || canManageAdmins
+              ? updated.permissions
+              : existing.permissions)
+          : const AdminPermissions(fullAccess: false, employeeManagement: false, branchManagement: false, manageCategories: false)
       ..joiningDate = updated.joiningDate
       ..photoPath = updated.photoPath
       ..updatedAt = DateTime.now();
@@ -600,9 +677,7 @@ class StaffProController extends ChangeNotifier {
     final user = _userById(userId);
     if (user == null) throw NotFoundException();
     if (user.id == actor.id) throw ValidationException('You cannot change your own account status.');
-    if (actor.role == UserRole.manager && (user.role != UserRole.employee || user.branchId != actor.branchId)) {
-      throw ForbiddenException();
-    }
+    if (!canEditUser(user)) throw ForbiddenException('You cannot change status for a higher or equal role.');
     if (actor.role == UserRole.businessAdmin) assertBusinessScope(actor, user.businessId);
     if (actor.role == UserRole.employee) throw ForbiddenException();
     user.status = status;
@@ -622,8 +697,16 @@ class StaffProController extends ChangeNotifier {
     final user = _userById(userId);
     if (user == null) throw NotFoundException();
     if (actor.role == UserRole.employee) throw ForbiddenException();
-    if (actor.role == UserRole.manager && user.branchId != actor.branchId) throw ForbiddenException();
-    if (actor.role == UserRole.businessAdmin) assertBusinessScope(actor, user.businessId);
+    if (actor.role == UserRole.manager &&
+        (user.role != UserRole.employee || user.branchId != actor.branchId)) {
+      throw ForbiddenException();
+    }
+    if (actor.role == UserRole.businessAdmin) {
+      assertBusinessScope(actor, user.businessId);
+      if (roleRank(user.role) >= roleRank(actor.role) && !canManageAdmins) {
+        throw ForbiddenException('You cannot reset access for an equal or higher role.');
+      }
+    }
     user.passwordSalt = CryptoUtils.randomSalt();
     user.passwordHash = CryptoUtils.hashPassword(newPassword, user.passwordSalt);
     user.updatedAt = DateTime.now();
@@ -710,6 +793,8 @@ class StaffProController extends ChangeNotifier {
     String city = '',
     double? latitude,
     double? longitude,
+    double? geofenceRadius,
+    bool? blockOutsideGeofence,
     EntityStatus status = EntityStatus.active,
   }) async {
     final actor = requireUser();
@@ -721,6 +806,12 @@ class StaffProController extends ChangeNotifier {
         _db.branches.any((b) => b.businessId == bizId && b.code.toLowerCase() == code.trim().toLowerCase())) {
       throw ValidationException('Branch code must be unique.');
     }
+    if (name.trim().isEmpty) {
+      throw ValidationException('Branch name is required.');
+    }
+    if (latitude == null || longitude == null) {
+      throw ValidationException('Set the shop location on the map (or use current location).');
+    }
     final branch = Branch(
       id: _uuid.v4(),
       businessId: bizId,
@@ -731,8 +822,8 @@ class StaffProController extends ChangeNotifier {
       city: city.trim(),
       latitude: latitude,
       longitude: longitude,
-      geofenceRadius: settings.geofenceRadius,
-      blockOutsideGeofence: settings.blockOutsideGeofence,
+      geofenceRadius: geofenceRadius ?? settings.geofenceRadius,
+      blockOutsideGeofence: blockOutsideGeofence ?? settings.blockOutsideGeofence,
       status: status,
     );
     _db.branches.add(branch);
@@ -933,24 +1024,23 @@ class StaffProController extends ChangeNotifier {
     }
     final branch = branchById(actor.branchId);
     if (branch == null) throw ValidationException('No branch is assigned.');
-    final loc = await _location.currentPosition();
-    if (loc.permissionDenied) {
-      throw ValidationException(loc.error ?? 'Location permission is required.');
+    if (!branch.hasLocation) {
+      throw ValidationException('This branch has no shop GPS pin. Ask an admin to set it on the map.');
     }
-    bool verified = false;
-    bool outside = false;
-    if (loc.hasPoint && branch.hasLocation) {
-      final dist = LocationService.distanceMeters(
-        loc.point!,
-        GeoPoint(branch.latitude!, branch.longitude!),
+    final loc = await _location.currentPosition(precise: true);
+    if (loc.permissionDenied || !loc.hasPoint) {
+      throw ValidationException(loc.error ?? 'Precise location is required to check in.');
+    }
+    final dist = LocationService.distanceMeters(
+      loc.point!,
+      GeoPoint(branch.latitude!, branch.longitude!),
+    );
+    final outside = dist > branch.geofenceRadius;
+    final verified = !outside;
+    if (outside && branch.blockOutsideGeofence) {
+      throw ValidationException(
+        'You are ${dist.round()}m away — outside the allowed ${branch.geofenceRadius.round()}m radius for ${branch.name}.',
       );
-      outside = dist > branch.geofenceRadius;
-      verified = !outside;
-      if (outside && branch.blockOutsideGeofence) {
-        throw ValidationException(
-          'You are outside the allowed ${branch.geofenceRadius.round()}m radius for ${branch.name}.',
-        );
-      }
     }
     final now = DateTime.now();
     final shift = shiftFor(businessId: actor.businessId ?? '', branchId: actor.branchId);
@@ -967,8 +1057,10 @@ class StaffProController extends ChangeNotifier {
       role: actor.role,
       date: _day(now),
       checkInAt: now,
-      checkInLatitude: loc.point?.latitude,
-      checkInLongitude: loc.point?.longitude,
+      checkInLatitude: loc.point!.latitude,
+      checkInLongitude: loc.point!.longitude,
+      checkInDistanceMeters: dist,
+      checkInAccuracyMeters: loc.accuracyMeters,
       shiftId: shift?.id,
       status: status,
       locationVerified: verified,
@@ -988,11 +1080,14 @@ class StaffProController extends ChangeNotifier {
     final actor = requireUser();
     final open = openAttendance(actor.id);
     if (open == null) throw ValidationException('You need to check in first.');
-    final loc = await _location.currentPosition();
+    final loc = await _location.currentPosition(precise: true);
+    if (loc.permissionDenied || !loc.hasPoint) {
+      throw ValidationException(loc.error ?? 'Precise location is required to check out.');
+    }
     final now = DateTime.now();
     open.checkOutAt = now;
-    open.checkOutLatitude = loc.point?.latitude;
-    open.checkOutLongitude = loc.point?.longitude;
+    open.checkOutLatitude = loc.point!.latitude;
+    open.checkOutLongitude = loc.point!.longitude;
     open.workedMinutes = now.difference(open.checkInAt).inMinutes;
     final shift = shiftFor(businessId: actor.businessId ?? '', branchId: actor.branchId);
     if (shift != null) {
@@ -1289,6 +1384,51 @@ class StaffProController extends ChangeNotifier {
     final list = _db.passwordRequests.where((r) => r.userId == userId).toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list.isEmpty ? null : list.first;
+  }
+
+  List<PasswordResetRequest> pendingPasswordRequests() {
+    final actor = requireUser();
+    return _db.passwordRequests.where((r) {
+      if (r.status != PasswordResetStatus.pending) return false;
+      if (actor.role == UserRole.superAdmin) return true;
+      if (actor.role == UserRole.businessAdmin) {
+        return r.businessId == actor.businessId;
+      }
+      if (actor.role == UserRole.manager) {
+        return r.branchId == actor.branchId;
+      }
+      return false;
+    }).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  Future<void> rejectPasswordRequest(String requestId) async {
+    final actor = requireUser();
+    if (actor.role == UserRole.employee) throw ForbiddenException();
+    PasswordResetRequest? req;
+    try {
+      req = _db.passwordRequests.firstWhere((r) => r.id == requestId);
+    } catch (_) {
+      throw NotFoundException('Request not found.');
+    }
+    if (actor.role == UserRole.businessAdmin && req.businessId != actor.businessId) {
+      throw ForbiddenException();
+    }
+    if (actor.role == UserRole.manager && req.branchId != actor.branchId) {
+      throw ForbiddenException();
+    }
+    req.status = PasswordResetStatus.rejected;
+    req.resolvedBy = actor.id;
+    req.updatedAt = DateTime.now();
+    _notify(
+      recipientUserId: req.userId,
+      type: NotificationType.passwordResetRequest,
+      title: 'Password request rejected',
+      message: 'Your password recovery request was rejected. Contact your manager if you still need help.',
+      businessId: req.businessId,
+      relatedId: req.id,
+    );
+    await _save();
   }
 
   Future<void> updateSettings({

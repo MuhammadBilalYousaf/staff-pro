@@ -8,6 +8,7 @@ import 'package:staffpro/core/widgets/ui_kit.dart';
 import 'package:staffpro/features/shells/app_shell.dart';
 import 'package:staffpro/models/enums.dart';
 import 'package:staffpro/models/models.dart';
+import 'package:staffpro/features/shared/map_location_picker.dart';
 import 'package:staffpro/services/location_service.dart';
 import 'package:staffpro/state/app_state.dart';
 import 'package:uuid/uuid.dart';
@@ -131,10 +132,11 @@ class BranchesScreen extends StatelessWidget {
         child: Column(
           children: [
             const ScreenHeader(title: 'Branches'),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: AppButton(label: 'Add Branch', icon: Icons.add, onPressed: () => context.push('/ba/branches/add')),
-            ),
+            if (app.canManageBranches)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: AppButton(label: 'Add Branch', icon: Icons.add, onPressed: () => context.push('/ba/branches/add')),
+              ),
             Expanded(
               child: branches.isEmpty
                   ? const EmptyView(title: 'No branches yet', subtitle: 'Create your first branch.')
@@ -185,17 +187,23 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
   final phone = TextEditingController();
   final address = TextEditingController();
   final city = TextEditingController();
+  final radius = TextEditingController(text: '200');
   EntityStatus status = EntityStatus.active;
   double? lat;
   double? lng;
+  bool blockOutside = false;
   bool loading = false;
+  bool locating = false;
   Branch? existing;
 
   @override
   void initState() {
     super.initState();
+    final app = context.read<StaffProController>();
+    radius.text = app.settings.geofenceRadius.toStringAsFixed(0);
+    blockOutside = app.settings.blockOutsideGeofence;
     if (widget.branchId != null) {
-      existing = context.read<StaffProController>().branchById(widget.branchId);
+      existing = app.branchById(widget.branchId);
       if (existing != null) {
         name.text = existing!.name;
         code.text = existing!.code;
@@ -205,6 +213,8 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
         status = existing!.status;
         lat = existing!.latitude;
         lng = existing!.longitude;
+        radius.text = existing!.geofenceRadius.toStringAsFixed(0);
+        blockOutside = existing!.blockOutsideGeofence;
       }
     }
   }
@@ -216,7 +226,40 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
     phone.dispose();
     address.dispose();
     city.dispose();
+    radius.dispose();
     super.dispose();
+  }
+
+  Future<void> _useCurrentLocation() async {
+    setState(() => locating = true);
+    final loc = await LocationService().currentPosition(precise: true);
+    if (!mounted) return;
+    setState(() => locating = false);
+    if (loc.hasPoint) {
+      setState(() {
+        lat = loc.point!.latitude;
+        lng = loc.point!.longitude;
+      });
+      showToast(context, 'Current GPS location set');
+    } else {
+      showToast(context, loc.error ?? 'Location unavailable', error: true);
+    }
+  }
+
+  Future<void> _pickOnMap() async {
+    final picked = await MapLocationPickerScreen.open(
+      context,
+      initialLatitude: lat,
+      initialLongitude: lng,
+      geofenceRadiusMeters: double.tryParse(radius.text) ?? 200,
+      title: 'Pin shop location',
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        lat = picked.latitude;
+        lng = picked.longitude;
+      });
+    }
   }
 
   @override
@@ -241,25 +284,41 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Location (GPS)', style: TextStyle(fontWeight: FontWeight.w800)),
+                const Text('Shop location (precise)', style: TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                Text(lat == null ? 'No location set' : '${lat!.toStringAsFixed(5)}, ${lng!.toStringAsFixed(5)}', style: const TextStyle(color: AppColors.muted)),
-                const SizedBox(height: 8),
+                Text(
+                  lat == null
+                      ? 'Required — pick on the map or use your current GPS.'
+                      : '${lat!.toStringAsFixed(6)}, ${lng!.toStringAsFixed(6)}',
+                  style: TextStyle(color: lat == null ? AppColors.danger : AppColors.muted, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 10),
                 AppButton(
-                  label: 'Set Location',
+                  label: locating ? 'Getting GPS…' : 'Use my current location',
                   outlined: true,
                   icon: Icons.my_location,
-                  onPressed: () async {
-                    final loc = await LocationService().currentPosition();
-                    if (loc.hasPoint) {
-                      setState(() {
-                        lat = loc.point!.latitude;
-                        lng = loc.point!.longitude;
-                      });
-                    } else if (context.mounted) {
-                      showToast(context, loc.error ?? 'Location unavailable', error: true);
-                    }
-                  },
+                  onPressed: locating ? null : _useCurrentLocation,
+                ),
+                const SizedBox(height: 8),
+                AppButton(
+                  label: 'Open map to select anywhere',
+                  icon: Icons.map_outlined,
+                  onPressed: _pickOnMap,
+                ),
+                const SizedBox(height: 12),
+                AppTextField(
+                  label: 'Attendance range (meters)',
+                  controller: radius,
+                  hint: 'e.g. 200',
+                  prefix: Icons.radar,
+                  keyboardType: TextInputType.number,
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: blockOutside,
+                  onChanged: (v) => setState(() => blockOutside = v),
+                  title: const Text('Block check-in outside this range'),
+                  subtitle: const Text('Off = allow check-in but flag as out of range'),
                 ),
               ],
             ),
@@ -277,8 +336,17 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
             label: existing == null ? 'Create Branch' : 'Save Changes',
             loading: loading,
             onPressed: () async {
+              if (name.text.trim().isEmpty) {
+                showToast(context, 'Branch name is required', error: true);
+                return;
+              }
+              if (lat == null || lng == null) {
+                showToast(context, 'Set shop location on the map or use current GPS', error: true);
+                return;
+              }
               setState(() => loading = true);
               try {
+                final geoRadius = double.tryParse(radius.text) ?? app.settings.geofenceRadius;
                 if (existing == null) {
                   await app.createBranch(
                     name: name.text,
@@ -289,6 +357,8 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
                     city: city.text,
                     latitude: lat,
                     longitude: lng,
+                    geofenceRadius: geoRadius,
+                    blockOutsideGeofence: blockOutside,
                     status: status,
                   );
                 } else {
@@ -300,6 +370,8 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
                     ..city = city.text
                     ..latitude = lat
                     ..longitude = lng
+                    ..geofenceRadius = geoRadius
+                    ..blockOutsideGeofence = blockOutside
                     ..status = status;
                   await app.updateBranch(existing!);
                 }
@@ -334,7 +406,10 @@ class BranchDetailsScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Text(b.name),
-          actions: [IconButton(onPressed: () => context.push('/ba/branches/${b.id}/edit'), icon: const Icon(Icons.edit_outlined))],
+          actions: [
+            if (app.canManageBranches)
+              IconButton(onPressed: () => context.push('/ba/branches/${b.id}/edit'), icon: const Icon(Icons.edit_outlined)),
+          ],
           bottom: const TabBar(tabs: [Tab(text: 'Overview'), Tab(text: 'Managers'), Tab(text: 'Employees'), Tab(text: 'Sales')]),
         ),
         body: TabBarView(children: [
@@ -342,10 +417,13 @@ class BranchDetailsScreen extends StatelessWidget {
             padding: const EdgeInsets.all(20),
             children: [
               AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(b.address),
-                Text(b.phone),
+                Text(b.address.isEmpty ? 'No address' : b.address),
+                Text(b.phone.isEmpty ? 'No phone' : b.phone),
                 Text('Status: ${statusLabel(b.status)}'),
-                if (b.hasLocation) Text('GPS: ${b.latitude}, ${b.longitude}'),
+                if (b.hasLocation)
+                  Text('GPS: ${b.latitude!.toStringAsFixed(6)}, ${b.longitude!.toStringAsFixed(6)} · ${b.geofenceRadius.round()}m range')
+                else
+                  const Text('Shop GPS: not set — edit branch to pin on map', style: TextStyle(color: AppColors.danger)),
               ])),
             ],
           ),
@@ -441,20 +519,23 @@ class ShiftManagementScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<StaffProController>();
     final shifts = app.db.shifts.where((s) => s.businessId == app.currentUser?.businessId).toList();
+    final canEdit = app.canManageAdmins || app.canManageBranches;
     return Scaffold(
       appBar: AppBar(title: const Text('Shift Management')),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primary,
-        onPressed: () => _edit(context, app, null),
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+      floatingActionButton: canEdit
+          ? FloatingActionButton(
+              backgroundColor: AppColors.primary,
+              onPressed: () => _edit(context, app, null),
+              child: const Icon(Icons.add, color: Colors.white),
+            )
+          : null,
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: shifts
             .map((s) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: AppCard(
-                    onTap: () => _edit(context, app, s),
+                    onTap: canEdit ? () => _edit(context, app, s) : null,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(s.name),
@@ -521,17 +602,23 @@ class BusinessMoreScreen extends StatelessWidget {
             AppCard(
               child: Column(
                 children: [
-                  MenuTile(icon: Icons.manage_accounts_outlined, label: 'Managers', onTap: () => context.push('/ba/managers')),
-                  MenuTile(icon: Icons.admin_panel_settings_outlined, label: 'Manage Admins', onTap: () => context.push('/ba/admins')),
+                  if (app.canCreateRole(UserRole.manager))
+                    MenuTile(icon: Icons.manage_accounts_outlined, label: 'Managers', onTap: () => context.push('/ba/managers')),
+                  if (app.canManageAdmins)
+                    MenuTile(icon: Icons.admin_panel_settings_outlined, label: 'Manage Admins', onTap: () => context.push('/ba/admins')),
                   MenuTile(icon: Icons.point_of_sale, label: 'Sales', onTap: () => context.push('/ba/sales')),
                   MenuTile(icon: Icons.receipt_long_outlined, label: 'Expenses', onTap: () => context.push('/ba/expenses')),
                   MenuTile(icon: Icons.fact_check_outlined, label: 'Attendance', onTap: () => context.push('/ba/attendance')),
+                  MenuTile(icon: Icons.lock_reset, label: 'Password Requests', onTap: () => context.push('/ba/password-requests')),
                   MenuTile(icon: Icons.notifications_none, label: 'Notifications', onTap: () => context.push('/ba/notifications')),
                   MenuTile(icon: Icons.apartment_outlined, label: 'Business Profile', onTap: () => context.push('/ba/business-profile')),
-                  MenuTile(icon: Icons.category_outlined, label: 'Expense Categories', onTap: () => context.push('/ba/categories')),
-                  MenuTile(icon: Icons.schedule_outlined, label: 'Shift Management', onTap: () => context.push('/ba/shifts')),
+                  if (app.canManageCategories)
+                    MenuTile(icon: Icons.category_outlined, label: 'Expense Categories', onTap: () => context.push('/ba/categories')),
+                  if (app.canManageAdmins || app.canManageBranches)
+                    MenuTile(icon: Icons.schedule_outlined, label: 'Shift Management', onTap: () => context.push('/ba/shifts')),
                   MenuTile(icon: Icons.history, label: 'Activity Logs', onTap: () => context.push('/ba/logs')),
                   MenuTile(icon: Icons.person_outline, label: 'Profile', onTap: () => context.push('/ba/profile')),
+                  MenuTile(icon: Icons.lock_outline, label: 'Change Password', onTap: () => context.push('/ba/password')),
                   MenuTile(icon: Icons.help_outline, label: 'Help & Support', onTap: () => context.push('/ba/help')),
                   MenuTile(icon: Icons.info_outline, label: 'About App', onTap: () => context.push('/ba/about')),
                   MenuTile(
@@ -799,9 +886,12 @@ class ManagerMoreScreen extends StatelessWidget {
               child: Column(
                 children: [
                   MenuTile(icon: Icons.receipt_long_outlined, label: 'Expenses', onTap: () => context.push('/mg/expenses')),
+                  MenuTile(icon: Icons.fact_check_outlined, label: 'Team Attendance', onTap: () => context.push('/mg/attendance/team')),
+                  MenuTile(icon: Icons.lock_reset, label: 'Password Requests', onTap: () => context.push('/mg/password-requests')),
                   MenuTile(icon: Icons.bar_chart, label: 'Reports', onTap: () => context.push('/mg/reports')),
                   MenuTile(icon: Icons.notifications_none, label: 'Notifications', onTap: () => context.push('/mg/notifications')),
                   MenuTile(icon: Icons.person_outline, label: 'Profile', onTap: () => context.push('/mg/profile')),
+                  MenuTile(icon: Icons.lock_outline, label: 'Change Password', onTap: () => context.push('/mg/password')),
                   MenuTile(icon: Icons.help_outline, label: 'Help & Support', onTap: () => context.push('/mg/help')),
                   MenuTile(icon: Icons.info_outline, label: 'About App', onTap: () => context.push('/mg/about')),
                   MenuTile(
@@ -809,8 +899,11 @@ class ManagerMoreScreen extends StatelessWidget {
                     label: 'Logout',
                     color: AppColors.danger,
                     onTap: () async {
-                      await app.logout();
-                      if (context.mounted) context.go('/login');
+                      final ok = await confirmAction(context, title: 'Logout?', message: 'Sign out?', confirmLabel: 'Logout', destructive: true);
+                      if (ok && context.mounted) {
+                        await app.logout();
+                        if (context.mounted) context.go('/login');
+                      }
                     },
                   ),
                 ],
@@ -840,7 +933,37 @@ class EmployeeMoreScreen extends StatelessWidget {
                 children: [
                   MenuTile(icon: Icons.person_outline, label: 'Profile', onTap: () => context.push('/emp/profile')),
                   MenuTile(icon: Icons.lock_outline, label: 'Change Password', onTap: () => context.push('/emp/password')),
-                  MenuTile(icon: Icons.storefront_outlined, label: 'My Branch', subtitle: app.branchName(app.currentUser?.branchId)),
+                  MenuTile(
+                    icon: Icons.storefront_outlined,
+                    label: 'My Branch',
+                    subtitle: app.branchName(app.currentUser?.branchId),
+                    onTap: () {
+                      final id = app.currentUser?.branchId;
+                      if (id == null) {
+                        showToast(context, 'No branch assigned', error: true);
+                        return;
+                      }
+                      final b = app.branchById(id);
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: Text(b?.name ?? 'Branch'),
+                          content: Text(
+                            [
+                              if ((b?.address ?? '').isNotEmpty) b!.address,
+                              if ((b?.city ?? '').isNotEmpty) b!.city,
+                              if ((b?.phone ?? '').isNotEmpty) b!.phone,
+                              if (b?.hasLocation == true)
+                                'GPS: ${b!.latitude!.toStringAsFixed(5)}, ${b.longitude!.toStringAsFixed(5)} (±${b.geofenceRadius.round()}m)'
+                              else
+                                'Shop GPS not set yet',
+                            ].where((e) => e.isNotEmpty).join('\n'),
+                          ),
+                          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+                        ),
+                      );
+                    },
+                  ),
                   MenuTile(icon: Icons.account_balance_wallet_outlined, label: 'Cash in Hand', onTap: () => context.push('/emp/cash')),
                   MenuTile(icon: Icons.notifications_none, label: 'Notifications', onTap: () => context.push('/emp/notifications')),
                   MenuTile(icon: Icons.lock_reset, label: 'Password Recovery', onTap: () => context.push('/emp/recovery')),
@@ -851,8 +974,11 @@ class EmployeeMoreScreen extends StatelessWidget {
                     label: 'Logout',
                     color: AppColors.danger,
                     onTap: () async {
-                      await app.logout();
-                      if (context.mounted) context.go('/login');
+                      final ok = await confirmAction(context, title: 'Logout?', message: 'Sign out?', confirmLabel: 'Logout', destructive: true);
+                      if (ok && context.mounted) {
+                        await app.logout();
+                        if (context.mounted) context.go('/login');
+                      }
                     },
                   ),
                 ],

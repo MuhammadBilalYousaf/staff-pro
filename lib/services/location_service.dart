@@ -12,11 +12,13 @@ class GeoPoint {
 class LocationResult {
   const LocationResult({
     this.point,
+    this.accuracyMeters,
     this.permissionDenied = false,
     this.error,
   });
 
   final GeoPoint? point;
+  final double? accuracyMeters;
   final bool permissionDenied;
   final String? error;
 
@@ -24,27 +26,41 @@ class LocationResult {
 }
 
 class LocationService {
-  Future<LocationResult> currentPosition() async {
+  /// Request location access early (app open) without requiring a fix.
+  Future<bool> ensurePermission() async {
+    final status = await Permission.locationWhenInUse.request();
+    if (!status.isGranted) return false;
+    final enabled = await Geolocator.isLocationServiceEnabled();
+    return enabled;
+  }
+
+  Future<LocationResult> currentPosition({bool precise = true}) async {
     final status = await Permission.locationWhenInUse.request();
     if (!status.isGranted) {
       return const LocationResult(
         permissionDenied: true,
-        error: 'Location permission is required to verify attendance.',
+        error: 'Location permission is required for attendance and shop location.',
       );
     }
 
     final enabled = await Geolocator.isLocationServiceEnabled();
     if (!enabled) {
       return const LocationResult(
-        error: 'Turn on location services to capture attendance location.',
+        error: 'Turn on location services to capture a precise GPS position.',
       );
     }
 
     try {
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: LocationSettings(
+          accuracy: precise ? LocationAccuracy.best : LocationAccuracy.high,
+          distanceFilter: 0,
+        ),
       );
-      return LocationResult(point: GeoPoint(pos.latitude, pos.longitude));
+      return LocationResult(
+        point: GeoPoint(pos.latitude, pos.longitude),
+        accuracyMeters: pos.accuracy,
+      );
     } catch (e) {
       return LocationResult(error: 'Unable to read GPS location. $e');
     }

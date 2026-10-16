@@ -285,9 +285,10 @@ class _AddSaleScreenState extends State<AddSaleScreen> {
           children: [
             if (!locked)
               DropdownButtonFormField<String>(
-                initialValue: _branchId,
+                initialValue: _branchId != null && app.visibleBranches().any((b) => b.id == _branchId) ? _branchId : null,
                 decoration: const InputDecoration(labelText: 'Branch'),
                 items: app.visibleBranches().map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
+                validator: (v) => (v == null || v.isEmpty) ? 'Select a branch' : null,
                 onChanged: (v) => setState(() => _branchId = v),
               )
             else
@@ -322,7 +323,19 @@ class _AddSaleScreenState extends State<AddSaleScreen> {
             const SizedBox(height: 14),
             AppTextField(label: 'Description (Optional)', controller: _desc, hint: 'Notes', prefix: Icons.notes_outlined, maxLines: 3),
             const SizedBox(height: 24),
-            AppButton(label: 'Save Sale', loading: _loading, onPressed: _loading ? null : _save),
+            AppButton(
+              label: 'Save Sale',
+              loading: _loading,
+              onPressed: _loading
+                  ? null
+                  : () {
+                      if (!locked && (_branchId == null || _branchId!.isEmpty)) {
+                        showToast(context, 'Select a branch first (not All Branches)', error: true);
+                        return;
+                      }
+                      _save();
+                    },
+            ),
           ],
         ),
       ),
@@ -472,9 +485,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       showToast(context, 'Select a category', error: true);
       return;
     }
+    final app = context.read<StaffProController>();
+    final locked = app.currentUser?.role == UserRole.employee || app.currentUser?.role == UserRole.manager;
+    if (!locked && (_branchId == null || _branchId!.isEmpty)) {
+      showToast(context, 'Select a branch first (not All Branches)', error: true);
+      return;
+    }
     setState(() => _loading = true);
     try {
-      await context.read<StaffProController>().addExpense(
+      await app.addExpense(
             amount: double.parse(_amount.text.replaceAll(',', '')),
             date: _date,
             categoryId: _categoryId!,
@@ -497,6 +516,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   Widget build(BuildContext context) {
     final app = context.watch<StaffProController>();
     final cats = app.categoriesFor(app.currentUser?.businessId).where((c) => c.status == EntityStatus.active).toList();
+    final locked = app.currentUser?.role == UserRole.employee || app.currentUser?.role == UserRole.manager;
     return Scaffold(
       appBar: AppBar(title: const Text('Add Expense')),
       body: Form(
@@ -504,6 +524,17 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
+            if (!locked)
+              DropdownButtonFormField<String>(
+                initialValue: _branchId != null && app.visibleBranches().any((b) => b.id == _branchId) ? _branchId : null,
+                decoration: const InputDecoration(labelText: 'Branch'),
+                items: app.visibleBranches().map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
+                validator: (v) => (v == null || v.isEmpty) ? 'Select a branch' : null,
+                onChanged: (v) => setState(() => _branchId = v),
+              )
+            else
+              AppTextField(label: 'Branch', controller: TextEditingController(text: app.branchName(_branchId)), readOnly: true, prefix: Icons.storefront_outlined),
+            const SizedBox(height: 14),
             AppTextField(
               label: 'Date',
               controller: TextEditingController(text: Formatters.date(_date)),
@@ -607,8 +638,25 @@ class AttendanceActionScreen extends StatelessWidget {
                       children: [
                         _kv('Shift', app.shiftFor(businessId: user.businessId ?? '', branchId: user.branchId)?.name ?? 'Default'),
                         _kv('Hours', '${app.shiftFor(businessId: user.businessId ?? '', branchId: user.branchId)?.startTime ?? '09:00'} - ${app.shiftFor(businessId: user.businessId ?? '', branchId: user.branchId)?.endTime ?? '18:00'}'),
-                        _kv('Location', app.branchName(user.branchId)),
+                        _kv('Shop', app.branchName(user.branchId)),
+                        Builder(builder: (_) {
+                          final branch = app.branchById(user.branchId);
+                          if (branch?.hasLocation != true) {
+                            return _kv('Shop GPS', 'Not set — ask admin to pin on map');
+                          }
+                          return _kv(
+                            'Shop GPS',
+                            '${branch!.latitude!.toStringAsFixed(5)}, ${branch.longitude!.toStringAsFixed(5)} (±${branch.geofenceRadius.round()}m)',
+                          );
+                        }),
                         _kv('Status', open == null ? 'Not in' : attendanceLabel(open.status)),
+                        if (open != null && open.checkInDistanceMeters != null)
+                          _kv(
+                            'Distance at check-in',
+                            open.outsideGeofence
+                                ? '${open.checkInDistanceMeters!.round()}m · OUT OF RANGE'
+                                : '${open.checkInDistanceMeters!.round()}m · In range',
+                          ),
                       ],
                     ),
                   ),
@@ -706,27 +754,71 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                       itemCount: records.length,
                       itemBuilder: (context, i) {
                         final a = records[i];
+                        final branch = app.branchById(a.branchId);
+                        final dist = a.checkInDistanceMeters;
+                        final rangeLabel = a.checkInLatitude == null
+                            ? 'No GPS'
+                            : a.outsideGeofence
+                                ? 'Out of range${dist != null ? ' · ${dist.round()}m' : ''}'
+                                : a.locationVerified
+                                    ? 'In range${dist != null ? ' · ${dist.round()}m' : ''}'
+                                    : 'Unverified';
+                        final rangeColor = a.outsideGeofence
+                            ? AppColors.danger
+                            : a.locationVerified
+                                ? AppColors.success
+                                : AppColors.warning;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: AppCard(
-                            onTap: app.currentUser?.role == UserRole.businessAdmin
+                            onTap: (app.currentUser?.role == UserRole.superAdmin ||
+                                    (app.currentUser?.role == UserRole.businessAdmin &&
+                                        (app.currentUser!.isOwner || app.currentUser!.permissions.canCorrectAttendance)))
                                 ? () => _correct(context, a)
                                 : null,
-                            child: Row(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(widget.team ? app.userName(a.userId) : Formatters.day(a.checkInAt), style: const TextStyle(fontWeight: FontWeight.w700)),
-                                      Text(
-                                        '${Formatters.time(a.checkInAt)} - ${a.checkOutAt == null ? '--:--' : Formatters.time(a.checkOutAt!)}  ·  ${Formatters.duration(a.workedMinutes)}',
-                                        style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(widget.team ? app.userName(a.userId) : Formatters.day(a.checkInAt), style: const TextStyle(fontWeight: FontWeight.w700)),
+                                          Text(
+                                            '${Formatters.time(a.checkInAt)} - ${a.checkOutAt == null ? '--:--' : Formatters.time(a.checkOutAt!)}  ·  ${Formatters.duration(a.workedMinutes)}',
+                                            style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                                          ),
+                                        ],
                                       ),
-                                    ],
-                                  ),
+                                    ),
+                                    StatusBadge(label: attendanceLabel(a.status), color: attendanceColor(a.status)),
+                                  ],
                                 ),
-                                StatusBadge(label: attendanceLabel(a.status), color: attendanceColor(a.status)),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: [
+                                    StatusBadge(label: rangeLabel, color: rangeColor),
+                                    if (a.checkInLatitude != null)
+                                      StatusBadge(
+                                        label: '${a.checkInLatitude!.toStringAsFixed(5)}, ${a.checkInLongitude!.toStringAsFixed(5)}',
+                                        color: AppColors.primary,
+                                      ),
+                                    if (a.checkInAccuracyMeters != null)
+                                      StatusBadge(
+                                        label: '±${a.checkInAccuracyMeters!.round()}m GPS',
+                                        color: AppColors.muted,
+                                      ),
+                                    if (widget.team && branch?.hasLocation == true)
+                                      StatusBadge(
+                                        label: 'Shop ${branch!.geofenceRadius.round()}m',
+                                        color: AppColors.teal,
+                                      ),
+                                  ],
+                                ),
                               ],
                             ),
                           ),
@@ -813,7 +905,11 @@ class _PeopleListScreenState extends State<PeopleListScreen> {
     final people = app.usersWhere(
       role: widget.role,
       businessId: user.role == UserRole.superAdmin ? null : user.businessId,
-      branchId: user.role == UserRole.manager ? user.branchId : app.effectiveBranchId,
+      branchId: user.role == UserRole.manager
+          ? user.branchId
+          : user.role == UserRole.superAdmin
+              ? null
+              : app.effectiveBranchId,
       status: status,
       query: _search.text,
     );
@@ -834,10 +930,15 @@ class _PeopleListScreenState extends State<PeopleListScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: FilterChips(items: const ['All', 'Active', 'Inactive'], value: filter, onChanged: (v) => setState(() => filter = v)),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-              child: AppButton(label: 'Add $title'.replaceAll('s', '').replaceFirst('Add Employee', 'Add Employee').replaceFirst('Add Manager', 'Add Manager'), icon: Icons.add, onPressed: () => context.push(addRoute)),
-            ),
+            if (app.canCreateRole(widget.role))
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                child: AppButton(
+                  label: widget.role == UserRole.manager ? 'Add Manager' : 'Add Employee',
+                  icon: Icons.add,
+                  onPressed: () => context.push(addRoute),
+                ),
+              ),
             Expanded(
               child: people.isEmpty
                   ? EmptyView(title: 'No $title yet', subtitle: 'Create the first record to get started.')
@@ -881,6 +982,9 @@ class _PeopleListScreenState extends State<PeopleListScreen> {
   }
 
   String _detailBase(UserRole actor, UserRole target) {
+    if (actor == UserRole.superAdmin) {
+      return target == UserRole.manager ? '/sa/managers' : '/sa/admins';
+    }
     if (actor == UserRole.manager) return '/mg/employees';
     if (target == UserRole.manager) return '/ba/managers';
     return '/ba/employees';
@@ -1011,9 +1115,10 @@ class _PersonFormScreenState extends State<PersonFormScreen> {
             ],
             const SizedBox(height: 14),
             DropdownButtonFormField<String>(
-              initialValue: _branchId,
+              initialValue: _branchId != null && app.visibleBranches().any((b) => b.id == _branchId) ? _branchId : null,
               decoration: const InputDecoration(labelText: 'Branch'),
               items: app.visibleBranches().map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
+              validator: (v) => (v == null || v.isEmpty) ? 'Select a branch' : null,
               onChanged: app.currentUser?.role == UserRole.manager ? null : (v) => setState(() => _branchId = v),
             ),
             if (widget.role == UserRole.employee) ...[
@@ -1605,20 +1710,112 @@ class PasswordRequestStatusScreen extends StatelessWidget {
   }
 }
 
+/// Inbox for managers / business admins to approve password recovery requests.
+class PasswordRequestsScreen extends StatelessWidget {
+  const PasswordRequestsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<StaffProController>();
+    final pending = app.pendingPasswordRequests();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Password Requests')),
+      body: pending.isEmpty
+          ? const EmptyView(title: 'No pending requests', subtitle: 'Employee recovery requests will appear here.')
+          : ListView.builder(
+              padding: const EdgeInsets.all(20),
+              itemCount: pending.length,
+              itemBuilder: (context, i) {
+                final req = pending[i];
+                AppUser? user;
+                try {
+                  user = app.db.users.firstWhere((u) => u.id == req.userId);
+                } catch (_) {
+                  user = null;
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(user?.fullName ?? req.email, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                        const SizedBox(height: 4),
+                        Text(req.email, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                        if (req.message.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(req.message),
+                        ],
+                        Text(Formatters.relative(req.createdAt), style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AppButton(
+                                label: 'Reject',
+                                outlined: true,
+                                onPressed: () async {
+                                  try {
+                                    await app.rejectPasswordRequest(req.id);
+                                    if (context.mounted) showToast(context, 'Request rejected');
+                                  } catch (e) {
+                                    if (context.mounted) showToast(context, e.toString(), error: true);
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: AppButton(
+                                label: 'Reset password',
+                                onPressed: () async {
+                                  final temp = 'Temp${DateTime.now().millisecondsSinceEpoch % 100000}';
+                                  final ok = await confirmAction(
+                                    context,
+                                    title: 'Reset password?',
+                                    message: 'A temporary password will be set for ${user?.fullName ?? req.email}:\n\n$temp',
+                                    confirmLabel: 'Reset',
+                                  );
+                                  if (!ok || !context.mounted) return;
+                                  try {
+                                    await app.resetAccess(req.userId, temp);
+                                    if (context.mounted) {
+                                      showToast(context, 'Password reset. Temp: $temp');
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) showToast(context, e.toString(), error: true);
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
 class HelpScreen extends StatelessWidget {
   const HelpScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final isSuper = context.watch<StaffProController>().currentUser?.role == UserRole.superAdmin;
     return Scaffold(
       appBar: AppBar(title: const Text('Help & Support')),
-      body: const Padding(
-        padding: EdgeInsets.all(20),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
         child: Text(
           'StaffPro helps businesses manage branches, staff, sales, expenses and attendance.\n\n'
           'Super Admin creates businesses.\nBusiness Admin manages branches and people.\nManagers operate a single assigned branch.\nEmployees record sales, expenses and attendance.\n\n'
-          'Default Super Admin secret code: STAFFPRO-2026 (change it in Settings after first login).',
-          style: TextStyle(height: 1.5),
+          'Pin each branch on the map so attendance can verify staff are in range.\n'
+          '${isSuper ? 'Change the Super Admin secret registration code anytime in Settings.' : 'Contact your Super Admin if you need a new admin account.'}',
+          style: const TextStyle(height: 1.5),
         ),
       ),
     );

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:staffpro/features/auth/auth_screens.dart';
+import 'package:staffpro/features/operations/customer_orders_screen.dart';
+import 'package:staffpro/features/operations/menu_screen.dart';
 import 'package:staffpro/features/operations/role_screens.dart';
 import 'package:staffpro/features/shared/shared_screens.dart';
 import 'package:staffpro/features/shells/app_shell.dart';
@@ -109,6 +111,8 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/ba/attendance', builder: (_, __) => const AttendanceHistoryScreen(team: true)),
       GoRoute(path: '/ba/notifications', builder: (_, __) => const NotificationsScreen()),
       GoRoute(path: '/ba/categories', builder: (_, __) => const ExpenseCategoriesScreen()),
+      GoRoute(path: '/ba/menu', builder: (_, __) => const MenuScreen()),
+      GoRoute(path: '/ba/orders', builder: (_, __) => const CustomerOrdersScreen()),
       GoRoute(path: '/ba/shifts', builder: (_, __) => const ShiftManagementScreen()),
       GoRoute(path: '/ba/logs', builder: (_, __) => const ActivityLogsScreen()),
       GoRoute(path: '/ba/password-requests', builder: (_, __) => const PasswordRequestsScreen()),

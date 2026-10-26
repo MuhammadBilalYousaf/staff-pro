@@ -14,6 +14,9 @@ class FirestorePaths {
   static const auditLogs = 'auditLogs';
   static const assignments = 'assignments';
   static const passwordRequests = 'passwordRequests';
+  static const publicMenus = 'publicMenus';
+  static const publicBusinesses = 'publicBusinesses';
+  static const customerOrders = 'customerOrders';
   static const platform = 'platform';
 
   static const settingsDoc = 'settings';

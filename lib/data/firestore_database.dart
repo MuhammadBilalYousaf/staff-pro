@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:staffpro/core/constants/app_constants.dart';
 import 'package:staffpro/core/constants/firestore_paths.dart';
 import 'package:staffpro/models/enums.dart';
+import 'package:staffpro/models/menu_models.dart';
 import 'package:staffpro/models/models.dart';
 
 /// In-memory cache synced with Firestore collections used by [StaffProController].
@@ -24,6 +25,8 @@ class FirestoreDatabase {
   final List<BranchAssignment> assignments = [];
   final List<PasswordResetRequest> passwordRequests = [];
   PlatformSettings settings = PlatformSettings();
+  PublicMenu? publicMenu;
+  PublicBusiness? publicBusiness;
 
   bool _loaded = false;
 
@@ -154,6 +157,8 @@ class FirestoreDatabase {
     passwordRequests
       ..clear()
       ..addAll(await _loadPasswordRequests(user));
+    publicMenu = await loadPublicMenu(user.businessId);
+    publicBusiness = await loadPublicBusiness(user.businessId);
   }
 
   Future<void> clearSessionCache() async {
@@ -169,6 +174,51 @@ class FirestoreDatabase {
     auditLogs.clear();
     assignments.clear();
     passwordRequests.clear();
+    publicMenu = null;
+    publicBusiness = null;
+  }
+
+  Future<PublicMenu?> loadPublicMenu(String? businessId) async {
+    if (businessId == null || businessId.isEmpty) return null;
+    final snap = await _fs.collection(FirestorePaths.publicMenus).doc(businessId).get();
+    if (!snap.exists || snap.data() == null) {
+      return PublicMenu(businessId: businessId, categories: []);
+    }
+    return PublicMenu.fromJson(snap.data()!);
+  }
+
+  Future<PublicBusiness?> loadPublicBusiness(String? businessId) async {
+    if (businessId == null || businessId.isEmpty) return null;
+    final snap = await _fs
+        .collection(FirestorePaths.publicBusinesses)
+        .where('businessId', isEqualTo: businessId)
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) return null;
+    return PublicBusiness.fromJson(snap.docs.first.data());
+  }
+
+  Future<void> savePublicBusiness(PublicBusiness profile) async {
+    await _fs.collection(FirestorePaths.publicBusinesses).doc(profile.slug).set(profile.toJson());
+    publicBusiness = profile;
+  }
+
+  Future<void> savePublicMenu(PublicMenu menu) async {
+    menu.updatedAt = DateTime.now();
+    await _fs.collection(FirestorePaths.publicMenus).doc(menu.businessId).set(menu.toJson());
+    publicMenu = menu;
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchCustomerOrders(String businessId) {
+    return _fs.collection(FirestorePaths.customerOrders).where('businessId', isEqualTo: businessId).snapshots();
+  }
+
+  Future<void> updateCustomerOrder(String orderId, {String? paymentStatus, String? orderStatus}) {
+    return _fs.collection(FirestorePaths.customerOrders).doc(orderId).update({
+      if (paymentStatus != null) 'paymentStatus': paymentStatus,
+      if (orderStatus != null) 'orderStatus': orderStatus,
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
   }
 
   /// Writes a single audit log (e.g. login/logout) without rewriting other collections.

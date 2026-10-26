@@ -4,7 +4,9 @@ import 'package:staffpro/core/constants/app_constants.dart';
 import 'package:staffpro/core/errors/app_exception.dart';
 import 'package:staffpro/data/firestore_database.dart';
 import 'package:staffpro/models/enums.dart';
+import 'package:staffpro/models/menu_models.dart';
 import 'package:staffpro/models/models.dart';
+import 'package:staffpro/services/bridge_api_client.dart';
 import 'package:staffpro/services/firebase_auth_service.dart';
 import 'package:staffpro/services/location_service.dart';
 import 'package:uuid/uuid.dart';
@@ -38,16 +40,19 @@ class PeriodFilter {
 }
 
 class StaffProController extends ChangeNotifier {
-  StaffProController(this._db, this._location, {FirebaseAuthService? auth})
-      : _auth = auth ?? FirebaseAuthService();
+  StaffProController(this._db, this._location, {FirebaseAuthService? auth, BridgeApiClient? bridge})
+      : _auth = auth ?? FirebaseAuthService(),
+        _bridge = bridge ?? BridgeApiClient();
 
   final FirestoreDatabase _db;
   final LocationService _location;
   final FirebaseAuthService _auth;
+  final BridgeApiClient _bridge;
   final _uuid = const Uuid();
 
   AppUser? currentUser;
   String? selectedBranchId;
+  Map<String, dynamic>? posBridgeDashboard;
   bool bootstrapping = true;
   String? lastError;
 
@@ -686,6 +691,27 @@ class StaffProController extends ChangeNotifier {
     );
     _audit(AuditAction.create, role.name, businessId: bizId, branchId: branchId, recordId: user.id, newData: user.email);
     await _save();
+    // Provision the same employee into the POS identity bridge (best-effort).
+    try {
+      await _bridge.upsertEmployee(
+        email: user.email,
+        displayName: user.fullName,
+        staffproRole: user.role.name,
+        password: password,
+        phone: user.phone,
+        employeeCode: user.employeeCode,
+        staffproFirebaseUid: user.id,
+        staffproBusinessId: user.businessId,
+        staffproBranchId: user.branchId,
+        posAccess: user.role == UserRole.businessAdmin ||
+            user.role == UserRole.manager ||
+            user.role == UserRole.employee,
+      );
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Bridge employee sync skipped: $error');
+      }
+    }
     return user;
   }
 
@@ -739,6 +765,38 @@ class StaffProController extends ChangeNotifier {
       newData: status.name,
     );
     await _save();
+    try {
+      await _bridge.upsertEmployee(
+        email: user.email,
+        displayName: user.fullName,
+        staffproRole: user.role.name,
+        phone: user.phone,
+        employeeCode: user.employeeCode,
+        staffproFirebaseUid: user.id,
+        staffproBusinessId: user.businessId,
+        staffproBranchId: user.branchId,
+        posAccess: status == EntityStatus.active &&
+            (user.role == UserRole.businessAdmin ||
+                user.role == UserRole.manager ||
+                user.role == UserRole.employee),
+        status: status == EntityStatus.active ? 'active' : 'disabled',
+      );
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Bridge status sync skipped: $error');
+      }
+    }
+  }
+
+  Future<void> refreshPosBridgeDashboard() async {
+    final user = currentUser;
+    if (user == null) return;
+    final data = await _bridge.getDashboard(
+      businessId: user.role == UserRole.superAdmin ? null : null,
+      branchId: effectiveBranchId,
+    );
+    posBridgeDashboard = data;
+    notifyListeners();
   }
 
   Future<String> resetAccess(String userId, String newPassword) async {
@@ -1043,6 +1101,54 @@ class StaffProController extends ChangeNotifier {
         ..updatedAt = DateTime.now();
       _audit(AuditAction.update, 'shift', businessId: shift.businessId, recordId: shift.id);
     }
+    await _save();
+  }
+
+  PublicMenu? get publicMenu => _db.publicMenu;
+  PublicBusiness? get publicBusiness => _db.publicBusiness;
+
+  Future<void> savePublicBusiness(PublicBusiness profile) async {
+    final actor = requireUser();
+    if (!canEditMenu || actor.businessId != profile.businessId) {
+      throw ForbiddenException('You cannot publish this business page.');
+    }
+    final slug = profile.slug.trim().toLowerCase();
+    if (!RegExp(r'^[a-z0-9]+(?:-[a-z0-9]+)*$').hasMatch(slug)) {
+      throw ValidationException('Slug can use lowercase letters, numbers, and hyphens.');
+    }
+    final previous = _db.publicBusiness;
+    if (previous != null && previous.slug != slug) {
+      previous.status = 'inactive';
+      await _db.savePublicBusiness(previous);
+    }
+    profile.status = 'active';
+    await _db.savePublicBusiness(PublicBusiness(
+      slug: slug,
+      businessId: profile.businessId,
+      name: profile.name.trim(),
+      branchId: profile.branchId,
+      paymentAccountName: profile.paymentAccountName.trim(),
+      paymentAccountNumber: profile.paymentAccountNumber.trim(),
+      paymentInstructions: profile.paymentInstructions.trim(),
+    ));
+    _audit(AuditAction.update, 'publicBusiness', businessId: profile.businessId, newData: slug);
+    await _save();
+  }
+
+  bool get canEditMenu {
+    final user = currentUser;
+    if (user == null || user.businessId == null) return false;
+    return user.role == UserRole.businessAdmin &&
+        (user.isOwner || user.permissions.fullAccess);
+  }
+
+  Future<void> savePublicMenu(PublicMenu menu) async {
+    final actor = requireUser();
+    if (!canEditMenu || actor.businessId != menu.businessId) {
+      throw ForbiddenException('You cannot edit this menu.');
+    }
+    await _db.savePublicMenu(menu);
+    _audit(AuditAction.update, 'publicMenu', businessId: menu.businessId, newData: '${menu.categories.length} categories');
     await _save();
   }
 

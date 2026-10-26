@@ -7,6 +7,7 @@ import 'package:staffpro/core/utils/formatters.dart';
 import 'package:staffpro/core/widgets/ui_kit.dart';
 import 'package:staffpro/features/shells/app_shell.dart';
 import 'package:staffpro/models/enums.dart';
+import 'package:staffpro/models/menu_models.dart';
 import 'package:staffpro/models/models.dart';
 import 'package:staffpro/features/shared/map_location_picker.dart';
 import 'package:staffpro/services/location_service.dart';
@@ -59,6 +60,7 @@ class BusinessAdminDashboard extends StatelessWidget {
                 ],
               ).animate().fadeIn(),
             ),
+            const _PosBridgeDashboardCard(),
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 18, 20, 8),
               child: Text('Branch Performance', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
@@ -607,11 +609,14 @@ class BusinessMoreScreen extends StatelessWidget {
                   if (app.canManageAdmins)
                     MenuTile(icon: Icons.admin_panel_settings_outlined, label: 'Manage Admins', onTap: () => context.push('/ba/admins')),
                   MenuTile(icon: Icons.point_of_sale, label: 'Sales', onTap: () => context.push('/ba/sales')),
+                  MenuTile(icon: Icons.shopping_bag_outlined, label: 'Customer orders', onTap: () => context.push('/ba/orders')),
                   MenuTile(icon: Icons.receipt_long_outlined, label: 'Expenses', onTap: () => context.push('/ba/expenses')),
                   MenuTile(icon: Icons.fact_check_outlined, label: 'Attendance', onTap: () => context.push('/ba/attendance')),
                   MenuTile(icon: Icons.lock_reset, label: 'Password Requests', onTap: () => context.push('/ba/password-requests')),
                   MenuTile(icon: Icons.notifications_none, label: 'Notifications', onTap: () => context.push('/ba/notifications')),
                   MenuTile(icon: Icons.apartment_outlined, label: 'Business Profile', onTap: () => context.push('/ba/business-profile')),
+                  if (app.canEditMenu)
+                    MenuTile(icon: Icons.restaurant_menu, label: 'Menu', onTap: () => context.push('/ba/menu')),
                   if (app.canManageCategories)
                     MenuTile(icon: Icons.category_outlined, label: 'Expense Categories', onTap: () => context.push('/ba/categories')),
                   if (app.canManageAdmins || app.canManageBranches)
@@ -663,9 +668,94 @@ class BusinessProfileScreen extends StatelessWidget {
             Text(b.address),
             Text('Status: ${statusLabel(b.status)}'),
           ])),
+          const SizedBox(height: 12),
+          if (app.canEditMenu) _PublicPageCard(business: b, profile: app.publicBusiness),
         ],
       ),
     );
+  }
+}
+
+class _PublicPageCard extends StatefulWidget {
+  const _PublicPageCard({required this.business, required this.profile});
+  final Business business;
+  final PublicBusiness? profile;
+
+  @override
+  State<_PublicPageCard> createState() => _PublicPageCardState();
+}
+
+class _PublicPageCardState extends State<_PublicPageCard> {
+  late final TextEditingController _slug;
+  late final TextEditingController _name;
+  late final TextEditingController _accountName;
+  late final TextEditingController _accountNumber;
+  late final TextEditingController _instructions;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final profile = widget.profile;
+    _slug = TextEditingController(text: profile?.slug.isNotEmpty == true ? profile!.slug : 'turknroll');
+    _name = TextEditingController(text: profile?.name.isNotEmpty == true ? profile!.name : widget.business.name);
+    _accountName = TextEditingController(text: profile?.paymentAccountName.isNotEmpty == true ? profile!.paymentAccountName : 'Bilal Yousaf');
+    _accountNumber = TextEditingController(text: profile?.paymentAccountNumber.isNotEmpty == true ? profile!.paymentAccountNumber : '0311-5318776');
+    _instructions = TextEditingController(text: profile?.paymentInstructions.isNotEmpty == true ? profile!.paymentInstructions : 'EasyPaisa / JazzCash');
+  }
+
+  @override
+  void dispose() {
+    _slug.dispose();
+    _name.dispose();
+    _accountName.dispose();
+    _accountNumber.dispose();
+    _instructions.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Customer ordering page', style: TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          Text('Public link: /b/${_slug.text.trim().toLowerCase()}', style: const TextStyle(color: AppColors.muted)),
+          TextField(controller: _slug, decoration: const InputDecoration(labelText: 'Public slug'), onChanged: (_) => setState(() {})),
+          TextField(controller: _name, decoration: const InputDecoration(labelText: 'Display name')),
+          TextField(controller: _accountName, decoration: const InputDecoration(labelText: 'Account name')),
+          TextField(controller: _accountNumber, decoration: const InputDecoration(labelText: 'EasyPaisa / JazzCash number')),
+          TextField(controller: _instructions, decoration: const InputDecoration(labelText: 'Payment instructions')),
+          const SizedBox(height: 12),
+          AppButton(
+            label: _saving ? 'Saving...' : 'Publish page',
+            expand: true,
+            onPressed: _saving ? null : _publish,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _publish() async {
+    setState(() => _saving = true);
+    try {
+      await context.read<StaffProController>().savePublicBusiness(PublicBusiness(
+            slug: _slug.text,
+            businessId: widget.business.id,
+            name: _name.text,
+            paymentAccountName: _accountName.text,
+            paymentAccountNumber: _accountNumber.text,
+            paymentInstructions: _instructions.text,
+          ));
+      if (mounted) showToast(context, 'Customer page published');
+    } catch (error) {
+      if (mounted) showToast(context, error.toString(), error: true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }
 
@@ -988,6 +1078,89 @@ class EmployeeMoreScreen extends StatelessWidget {
             const Center(child: Text('StaffPro  ·  v1.0.0', style: TextStyle(color: AppColors.muted))),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PosBridgeDashboardCard extends StatefulWidget {
+  const _PosBridgeDashboardCard();
+
+  @override
+  State<_PosBridgeDashboardCard> createState() => _PosBridgeDashboardCardState();
+}
+
+class _PosBridgeDashboardCardState extends State<_PosBridgeDashboardCard> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<StaffProController>().refreshPosBridgeDashboard();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<StaffProController>();
+    final data = app.posBridgeDashboard;
+    final kpis = data?['kpis'];
+    final map = kpis is Map ? Map<String, dynamic>.from(kpis) : null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('POS live (bridge)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                ),
+                IconButton(
+                  tooltip: 'Refresh POS data',
+                  onPressed: () => app.refreshPosBridgeDashboard(),
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            if (map == null)
+              const Text(
+                'Connect the bridge API to see today’s POS sales, shifts and stock alerts.',
+                style: TextStyle(color: AppColors.muted),
+              )
+            else
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  _chip('POS sales', Formatters.money((map['salesToday'] as num?)?.toDouble() ?? 0)),
+                  _chip('Orders', '${map['ordersToday'] ?? 0}'),
+                  _chip('Active shifts', '${map['activeShifts'] ?? 0}'),
+                  _chip('Low stock', '${map['lowStockCount'] ?? 0}'),
+                  _chip('Out of stock', '${map['outOfStockCount'] ?? 0}'),
+                  _chip('Refunds', Formatters.money((map['refundsToday'] as num?)?.toDouble() ?? 0)),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.wash,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ],
       ),
     );
   }

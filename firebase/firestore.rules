@@ -240,6 +240,73 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /publicBusinesses/{slug} {
+      allow read: if resource.data.status == 'active'
+        || isSuperAdmin()
+        || isBusinessAdmin(resource.data.businessId);
+      allow create: if (isSuperAdmin() || isBusinessAdmin(request.resource.data.businessId))
+        && request.resource.data.slug == slug
+        && request.resource.data.businessId is string
+        && request.resource.data.status == 'active';
+      allow update: if (isSuperAdmin() || isBusinessAdmin(resource.data.businessId))
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.slug == slug
+        && request.resource.data.status in ['active', 'inactive'];
+      allow delete: if false;
+    }
+
+    function staffForOrder() {
+      return isSuperAdmin()
+        || isBusinessAdmin(resource.data.businessId)
+        || (resource.data.branchId is string
+            && isManager(resource.data.businessId, resource.data.branchId));
+    }
+
+    match /customerOrders/{orderId} {
+      allow read: if (signedIn() && resource.data.customerUid == request.auth.uid)
+        || staffForOrder();
+
+      allow create: if signedIn()
+        && request.resource.data.customerUid == request.auth.uid
+        && request.resource.data.businessId is string
+        && request.resource.data.customerName is string
+        && request.resource.data.phone is string
+        && request.resource.data.orderType in ['dineIn', 'takeaway']
+        && request.resource.data.paymentMethod == 'manual'
+        && request.resource.data.paymentReference is string
+        && request.resource.data.paymentReference.size() > 2
+        && request.resource.data.paymentReference.size() < 80
+        && request.resource.data.paymentStatus == 'PENDING_PAYMENT_VERIFICATION'
+        && request.resource.data.orderStatus == 'PENDING_PAYMENT_VERIFICATION'
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 40
+        && request.resource.data.total is number
+        && request.resource.data.total > 0
+        && request.resource.data.subtotal == request.resource.data.total;
+
+      allow update: if staffForOrder()
+        && request.resource.data.customerUid == resource.data.customerUid
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.items == resource.data.items
+        && request.resource.data.total == resource.data.total
+        && request.resource.data.subtotal == resource.data.subtotal
+        && request.resource.data.paymentReference == resource.data.paymentReference
+        && request.resource.data.paymentMethod == resource.data.paymentMethod
+        && request.resource.data.paymentStatus in ['PENDING_PAYMENT_VERIFICATION', 'PAYMENT_VERIFIED', 'PAYMENT_REJECTED']
+        && request.resource.data.orderStatus in ['PENDING_PAYMENT_VERIFICATION', 'PAYMENT_VERIFIED', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'PAYMENT_REJECTED', 'CANCELLED'];
+
+      allow delete: if false;
+    }
+
+    match /publicMenus/{businessId} {
+      allow read: if true;
+      allow create, update: if isSuperAdmin()
+        || (isBusinessAdmin(businessId)
+            && request.resource.data.businessId == businessId);
+      allow delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

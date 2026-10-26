@@ -12,6 +12,8 @@ flutter pub get
 flutter run
 ```
 
+The customer ordering website is a separate project at `ordering-web`. It shares this Firebase project. Run it from that folder, not from the Flutter app.
+
 Use a phone or emulator. Location permission is required for check-in / check-out.
 
 ## First-time setup
@@ -30,7 +32,7 @@ Passwords are hashed (never stored as plaintext). Historical records are kept wh
 
 - Role-based dashboards and bottom navigation matching the StaffPro UI
 - Super Admin: businesses, admins, platform reports, activity logs, secret code
-- Business Admin: branches, employees, managers, sales, expenses, attendance, categories, shifts, reports
+- Business Admin: branches, employees, managers, sales, expenses, attendance, categories, shifts, reports, customer menu (`publicMenus`), public ordering page (`publicBusinesses`, first slug `turknroll`)
 - Manager: assigned-branch only (cannot switch branches)
 - Employee: own sales/expenses, cash in hand, attendance, password recovery request
 - Persistent branch selector for admins
@@ -39,6 +41,26 @@ Passwords are hashed (never stored as plaintext). Historical records are kept wh
 - In-app notifications (employee check-in → manager + admin, manager check-in → admin)
 - Audit logs
 - CSV export via share sheet
+- Shared POS backend (`pos-platform/backend`): employee provisioning and POS dashboard / sales figures
+
+## Shared backend
+
+StaffPro still stores people, attendance, and its own sales/expenses in Firebase (`turknroll-management-app`). The POS API is an extra bridge, not a replacement for Firestore.
+
+| Item | Detail |
+| --- | --- |
+| API | `pos-platform/backend`, default `http://127.0.0.1:3080/api/v1` |
+| Override | `--dart-define=BRIDGE_API_BASE=...` |
+| Auth | StaffPro Firebase ID token (`Authorization: Bearer`) |
+| Client | `lib/services/bridge_api_client.dart` |
+
+Calls today:
+
+- `POST /employees` when a user is created or their status changes (best-effort; a failed bridge call does not roll back the StaffPro account)
+- `GET /dashboard` for POS figures on the admin dashboard
+- `GET /auth/session` and `GET /reports/sales` are available on the client
+
+Start the POS API before using those screens. Business Admin, Manager, and Employee accounts are given POS access; deactivating someone sets them to `disabled` on the bridge.
 
 ## Assumptions (called out in the spec)
 
@@ -78,6 +100,7 @@ Do not skip security rules — UI hiding is not authorization.
 
 ```
 UI → StaffProController → Firebase Auth + FirestoreDatabase → Cloud Firestore
+                         → BridgeApiClient → POS API (pos-platform/backend)
 ```
 
-Role, business and branch checks run in the controller and in `firestore.rules`.
+Role, business and branch checks run in the controller and in `firestore.rules`. The POS API checks the same Firebase token and maps StaffPro users into its own employee records.

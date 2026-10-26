@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:staffpro/core/constants/app_constants.dart';
@@ -55,6 +57,8 @@ class StaffProController extends ChangeNotifier {
   Map<String, dynamic>? posBridgeDashboard;
   bool bootstrapping = true;
   String? lastError;
+  StreamSubscription<dynamic>? _orderAlerts;
+  final Set<String> _seenOrderIds = {};
 
   FirestoreDatabase get db => _db;
   PlatformSettings get settings => _db.settings;
@@ -68,6 +72,7 @@ class StaffProController extends ChangeNotifier {
       if (user != null && user.isActive) {
         currentUser = user;
         await _db.loadForUser(user);
+        _watchCustomerOrders(user);
         selectedBranchId = prefs.getString(AppConstants.selectedBranchKey) ?? user.branchId;
         if (currentUser!.role == UserRole.manager || currentUser!.role == UserRole.employee) {
           selectedBranchId = currentUser!.branchId;
@@ -351,6 +356,7 @@ class StaffProController extends ChangeNotifier {
     }
     _audit(AuditAction.login, 'auth', newData: user.email);
     await _persistLoginAudit();
+    _watchCustomerOrders(user);
   }
 
   Future<String?> rememberedEmail() async {
@@ -359,6 +365,9 @@ class StaffProController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await _orderAlerts?.cancel();
+    _orderAlerts = null;
+    _seenOrderIds.clear();
     final user = currentUser;
     if (user != null) {
       _audit(AuditAction.logout, 'auth');
@@ -1620,6 +1629,36 @@ class StaffProController extends ChangeNotifier {
       return false;
     }).toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  void _watchCustomerOrders(AppUser user) {
+    _orderAlerts?.cancel();
+    _seenOrderIds.clear();
+    final businessId = user.businessId;
+    if (user.role != UserRole.businessAdmin || businessId == null || businessId.isEmpty) return;
+    var firstSnapshot = true;
+    _orderAlerts = _db.watchCustomerOrders(businessId).listen((snap) {
+      if (firstSnapshot) {
+        _seenOrderIds.addAll(snap.docs.map((doc) => doc.id));
+        firstSnapshot = false;
+        return;
+      }
+      for (final doc in snap.docs) {
+        if (!_seenOrderIds.add(doc.id)) continue;
+        final data = doc.data();
+        _notify(
+          recipientUserId: user.id,
+          type: NotificationType.system,
+          title: 'New customer order',
+          message: 'Order ${data['orderNumber'] ?? ''} · ${data['customerName'] ?? 'Customer'} · ${data['paymentReference'] ?? ''}',
+          businessId: businessId,
+          branchId: data['branchId']?.toString(),
+          relatedId: doc.id,
+        );
+        _save();
+        notifyListeners();
+      }
+    });
   }
 
   void _notify({

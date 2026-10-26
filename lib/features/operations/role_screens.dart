@@ -37,7 +37,6 @@ class BusinessAdminDashboard extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            ScreenHeader(title: biz?.name ?? 'Business', subtitle: 'Business Admin'),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
               child: Text('${Formatters.greeting()}, ${user.firstName}!', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
@@ -133,7 +132,6 @@ class BranchesScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            const ScreenHeader(title: 'Branches'),
             if (app.canManageBranches)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
@@ -600,7 +598,6 @@ class BusinessMoreScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const ScreenHeader(title: 'More'),
             AppCard(
               child: Column(
                 children: [
@@ -697,11 +694,11 @@ class _PublicPageCardState extends State<_PublicPageCard> {
   void initState() {
     super.initState();
     final profile = widget.profile;
-    _slug = TextEditingController(text: profile?.slug.isNotEmpty == true ? profile!.slug : 'turknroll');
+    _slug = TextEditingController(text: profile?.slug.isNotEmpty == true ? profile!.slug : _slugFromName(widget.business.name));
     _name = TextEditingController(text: profile?.name.isNotEmpty == true ? profile!.name : widget.business.name);
-    _accountName = TextEditingController(text: profile?.paymentAccountName.isNotEmpty == true ? profile!.paymentAccountName : 'Bilal Yousaf');
-    _accountNumber = TextEditingController(text: profile?.paymentAccountNumber.isNotEmpty == true ? profile!.paymentAccountNumber : '0311-5318776');
-    _instructions = TextEditingController(text: profile?.paymentInstructions.isNotEmpty == true ? profile!.paymentInstructions : 'EasyPaisa / JazzCash');
+    _accountName = TextEditingController(text: profile?.paymentAccountName ?? '');
+    _accountNumber = TextEditingController(text: profile?.paymentAccountNumber ?? '');
+    _instructions = TextEditingController(text: profile?.paymentInstructions ?? '');
   }
 
   @override
@@ -737,6 +734,10 @@ class _PublicPageCardState extends State<_PublicPageCard> {
         ],
       ),
     );
+  }
+
+  String _slugFromName(String name) {
+    return name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
   }
 
   Future<void> _publish() async {
@@ -778,7 +779,6 @@ class EmployeeDashboard extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            ScreenHeader(title: app.businessName(user.businessId), subtitle: app.branchName(user.branchId)),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
               child: Text('${Formatters.greeting()}, ${user.firstName}!', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
@@ -895,7 +895,6 @@ class ManagerDashboard extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            ScreenHeader(title: app.branchName(user.branchId), subtitle: 'Manager'),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
               child: Text('${Formatters.greeting()}, ${user.firstName}!', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
@@ -971,7 +970,6 @@ class ManagerMoreScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const ScreenHeader(title: 'More'),
             AppCard(
               child: Column(
                 children: [
@@ -1017,7 +1015,6 @@ class EmployeeMoreScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const ScreenHeader(title: 'More'),
             AppCard(
               child: Column(
                 children: [

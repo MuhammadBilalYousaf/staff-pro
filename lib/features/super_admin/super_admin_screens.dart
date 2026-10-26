@@ -28,7 +28,6 @@ class SuperAdminDashboard extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            ScreenHeader(title: 'StaffPro', subtitle: 'Super Admin'),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
               child: Text('${Formatters.greeting()}, ${app.currentUser?.firstName ?? 'Super Admin'}!', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
@@ -127,7 +126,6 @@ class _BusinessesScreenState extends State<BusinessesScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            const ScreenHeader(title: 'Businesses'),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
               child: SearchField(controller: _search, hint: 'Search businesses', onChanged: (_) => setState(() {})),
@@ -734,7 +732,6 @@ class SuperAdminMoreScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const ScreenHeader(title: 'More'),
             AppCard(
               child: ListTile(
                 contentPadding: EdgeInsets.zero,

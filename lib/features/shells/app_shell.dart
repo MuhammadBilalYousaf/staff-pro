@@ -22,8 +22,26 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<StaffProController>();
+    final user = app.currentUser;
+    final tab = items[navigationShell.currentIndex];
+    final biz = user?.businessId == null ? '' : app.businessName(user?.businessId);
+    final subtitle = user == null ? null : (biz.isEmpty || biz == '—' ? roleLabel(user.role) : '${roleLabel(user.role)} · $biz');
     return Scaffold(
-      body: navigationShell,
+      body: Column(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: ScreenHeader(title: tab.label, subtitle: subtitle),
+          ),
+          Expanded(
+            child: MediaQuery.removePadding(
+              context: context,
+              removeTop: true,
+              child: navigationShell,
+            ),
+          ),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: Colors.white,

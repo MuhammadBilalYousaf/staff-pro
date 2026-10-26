@@ -343,7 +343,8 @@ class _AddSaleScreenState extends State<AddSaleScreen> {
 }
 
 class ExpensesScreen extends StatefulWidget {
-  const ExpensesScreen({super.key});
+  const ExpensesScreen({super.key, this.showHeader = true});
+  final bool showHeader;
 
   @override
   State<ExpensesScreen> createState() => _ExpensesScreenState();
@@ -362,7 +363,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            const ScreenHeader(title: 'Expenses'),
+            if (widget.showHeader) const ScreenHeader(title: 'Expenses'),
             const BranchSelectorBar(),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -592,7 +593,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 }
 
 class AttendanceActionScreen extends StatelessWidget {
-  const AttendanceActionScreen({super.key});
+  const AttendanceActionScreen({super.key, this.showHeader = true});
+  final bool showHeader;
 
   @override
   Widget build(BuildContext context) {
@@ -604,7 +606,7 @@ class AttendanceActionScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            ScreenHeader(title: 'Attendance', onBell: () => context.push(user.role == UserRole.manager ? '/mg/notifications' : '/emp/notifications')),
+            if (showHeader) ScreenHeader(title: 'Attendance', onBell: () => context.push(user.role == UserRole.manager ? '/mg/notifications' : '/emp/notifications')),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.all(20),
@@ -877,8 +879,9 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
 }
 
 class PeopleListScreen extends StatefulWidget {
-  const PeopleListScreen({super.key, required this.role});
+  const PeopleListScreen({super.key, required this.role, this.showHeader = true});
   final UserRole role;
+  final bool showHeader;
 
   @override
   State<PeopleListScreen> createState() => _PeopleListScreenState();
@@ -920,7 +923,7 @@ class _PeopleListScreenState extends State<PeopleListScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            ScreenHeader(title: title),
+            if (widget.showHeader) ScreenHeader(title: title),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
               child: SearchField(controller: _search, hint: 'Search $title', onChanged: (_) => setState(() {})),
@@ -1209,7 +1212,8 @@ class _PersonFormScreenState extends State<PersonFormScreen> {
 }
 
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+  const NotificationsScreen({super.key, this.showHeader = true});
+  final bool showHeader;
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -1226,7 +1230,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            ScreenHeader(title: 'Notifications'),
+            if (widget.showHeader) const ScreenHeader(title: 'Notifications'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
@@ -1521,8 +1525,9 @@ class CashScreen extends StatelessWidget {
 }
 
 class ReportsHubScreen extends StatefulWidget {
-  const ReportsHubScreen({super.key, this.platform = false});
+  const ReportsHubScreen({super.key, this.platform = false, this.showHeader = true});
   final bool platform;
+  final bool showHeader;
 
   @override
   State<ReportsHubScreen> createState() => _ReportsHubScreenState();
@@ -1547,7 +1552,7 @@ class _ReportsHubScreenState extends State<ReportsHubScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           children: [
-            ScreenHeader(title: 'Reports'),
+            if (widget.showHeader) const ScreenHeader(title: 'Reports'),
             AppCard(
               onTap: () async {
                 final picked = await showDateRangePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime.now(), initialDateRange: range);

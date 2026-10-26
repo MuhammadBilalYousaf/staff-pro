@@ -262,6 +262,17 @@ service cloud.firestore {
             && isManager(resource.data.businessId, resource.data.branchId));
     }
 
+    match /customers/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.guest is bool
+        && request.resource.data.name is string
+        && request.resource.data.phone is string;
+      allow delete: if false;
+    }
+
     match /customerOrders/{orderId} {
       allow read: if (signedIn() && resource.data.customerUid == request.auth.uid)
         || staffForOrder();

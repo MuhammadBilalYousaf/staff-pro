@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:staffpro/core/theme/app_colors.dart';
 import 'package:staffpro/core/widgets/ui_kit.dart';
@@ -86,6 +89,7 @@ class _MenuScreenState extends State<MenuScreen> {
                         for (final product in category.products)
                           ListTile(
                             contentPadding: EdgeInsets.zero,
+                            leading: _ProductThumb(url: product.imageUrl),
                             title: Text(product.name),
                             subtitle: Text(_productSubtitle(product)),
                             trailing: canEdit
@@ -215,6 +219,39 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 }
 
+Widget _menuImage(String url, Widget fallback) {
+  if (url.startsWith('data:image')) {
+    final comma = url.indexOf(',');
+    if (comma < 0) return fallback;
+    try {
+      return Image.memory(base64Decode(url.substring(comma + 1)), fit: BoxFit.cover, errorBuilder: (_, _, _) => fallback);
+    } catch (_) {
+      return fallback;
+    }
+  }
+  if (url.startsWith('http')) {
+    return Image.network(url, fit: BoxFit.cover, errorBuilder: (_, _, _) => fallback);
+  }
+  return fallback;
+}
+
+class _ProductThumb extends StatelessWidget {
+  const _ProductThumb({required this.url});
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 48,
+        height: 48,
+        child: _menuImage(url, const ColoredBox(color: Color(0xFFE8E4DE), child: Icon(Icons.fastfood_outlined))),
+      ),
+    );
+  }
+}
+
 class _ProductDialog extends StatefulWidget {
   const _ProductDialog({this.existing});
   final MenuProduct? existing;
@@ -226,10 +263,13 @@ class _ProductDialog extends StatefulWidget {
 class _ProductDialogState extends State<_ProductDialog> {
   late final TextEditingController _name;
   late final TextEditingController _description;
+  late final TextEditingController _imageUrl;
+  String _image = '';
   late final TextEditingController _price;
   late final TextEditingController _variants;
   late final TextEditingController _addons;
   late bool _available;
+  bool _uploading = false;
   final _uuid = const Uuid();
 
   @override
@@ -238,6 +278,9 @@ class _ProductDialogState extends State<_ProductDialog> {
     final product = widget.existing;
     _name = TextEditingController(text: product?.name ?? '');
     _description = TextEditingController(text: product?.description ?? '');
+    final savedImage = product?.imageUrl ?? '';
+    _image = savedImage;
+    _imageUrl = TextEditingController(text: savedImage.startsWith('http') ? savedImage : '');
     _price = TextEditingController(text: product == null ? '' : product.price.toStringAsFixed(0));
     _variants = TextEditingController(text: _formatChoices(product?.variants ?? []));
     _addons = TextEditingController(text: _formatChoices(product?.addons ?? []));
@@ -268,6 +311,28 @@ class _ProductDialogState extends State<_ProductDialog> {
     return result;
   }
 
+  Future<void> _uploadImage() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 45, maxWidth: 640);
+    if (file == null || !mounted) return;
+    setState(() => _uploading = true);
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 200000) {
+        if (mounted) showToast(context, 'That photo is too large. Paste an image URL instead.', error: true);
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _imageUrl.clear();
+        _image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+      });
+    } catch (error) {
+      if (mounted) showToast(context, 'Could not read that photo. Paste an image URL instead.', error: true);
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -278,6 +343,35 @@ class _ProductDialogState extends State<_ProductDialog> {
           children: [
             TextField(controller: _name, decoration: const InputDecoration(labelText: 'Name')),
             TextField(controller: _description, decoration: const InputDecoration(labelText: 'Description')),
+            TextField(
+              controller: _imageUrl,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: 'Image URL',
+                helperText: 'Paste a link, or upload a photo. Uploaded photos are saved with the menu.',
+              ),
+              onChanged: (value) => setState(() => _image = value.trim()),
+            ),
+            const SizedBox(height: 8),
+            if (_image.startsWith('http') || _image.startsWith('data:image'))
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  height: 120,
+                  width: double.infinity,
+                  child: _menuImage(_image, const SizedBox.shrink()),
+                ),
+              ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _uploading ? null : _uploadImage,
+                icon: _uploading
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.upload_outlined),
+                label: Text(_uploading ? 'Uploading…' : 'Upload image'),
+              ),
+            ),
             TextField(
               controller: _price,
               keyboardType: TextInputType.number,
@@ -322,6 +416,7 @@ class _ProductDialogState extends State<_ProductDialog> {
                 id: previous?.id ?? _uuid.v4(),
                 name: _name.text.trim(),
                 description: _description.text.trim(),
+                imageUrl: _imageUrl.text.trim().startsWith('http') ? _imageUrl.text.trim() : _image,
                 price: double.tryParse(_price.text.trim()) ?? 0,
                 available: _available,
                 variants: _parseChoices(_variants.text, previous?.variants ?? []),

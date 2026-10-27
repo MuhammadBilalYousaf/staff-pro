@@ -13,20 +13,58 @@ class NavItem {
   final String route;
 }
 
-class AppShell extends StatelessWidget {
+class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.navigationShell, required this.items});
 
   final StatefulNavigationShell navigationShell;
   final List<NavItem> items;
 
   @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  late final List<int> _history = [widget.navigationShell.currentIndex];
+  bool _restoringTab = false;
+
+  @override
+  void didUpdateWidget(AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final index = widget.navigationShell.currentIndex;
+    if (_restoringTab) {
+      if (index == _history.last) _restoringTab = false;
+      return;
+    }
+    if (_history.last != index) _history.add(index);
+  }
+
+  void _selectTab(int index) {
+    if (index == widget.navigationShell.currentIndex) {
+      widget.navigationShell.goBranch(index, initialLocation: true);
+      return;
+    }
+    setState(() => _history.add(index));
+    widget.navigationShell.goBranch(index);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final navigationShell = widget.navigationShell;
+    final items = widget.items;
     final app = context.watch<StaffProController>();
     final user = app.currentUser;
     final tab = items[navigationShell.currentIndex];
     final biz = user?.businessId == null ? '' : app.businessName(user?.businessId);
     final subtitle = user == null ? null : (biz.isEmpty || biz == '—' ? roleLabel(user.role) : '${roleLabel(user.role)} · $biz');
-    return Scaffold(
+    return PopScope(
+      canPop: _history.length <= 1,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _history.length <= 1) return;
+        _restoringTab = true;
+        setState(() => _history.removeLast());
+        navigationShell.goBranch(_history.last);
+      },
+      child: Scaffold(
       body: Column(
         children: [
           SafeArea(
@@ -60,13 +98,14 @@ class AppShell extends StatelessWidget {
                       item: items[i],
                       selected: navigationShell.currentIndex == i,
                       badge: items[i].label == 'Alerts' || items[i].label == 'Inbox' ? app.unreadCount : 0,
-                      onTap: () => navigationShell.goBranch(i, initialLocation: i == navigationShell.currentIndex),
+                      onTap: () => _selectTab(i),
                     ),
                   ),
               ],
             ),
           ),
         ),
+      ),
       ),
     );
   }

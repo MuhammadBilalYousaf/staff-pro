@@ -1658,7 +1658,7 @@ class StaffProController extends ChangeNotifier {
         _save();
         notifyListeners();
       }
-    });
+    }, onError: (_) {});
   }
 
   void _notify({

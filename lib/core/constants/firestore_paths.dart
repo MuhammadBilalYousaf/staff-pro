@@ -17,6 +17,7 @@ class FirestorePaths {
   static const publicMenus = 'publicMenus';
   static const publicBusinesses = 'publicBusinesses';
   static const customerOrders = 'customerOrders';
+  static const loyaltyAccounts = 'loyaltyAccounts';
   static const platform = 'platform';
 
   static const settingsDoc = 'settings';

@@ -21,6 +21,7 @@ class MenuProduct {
     required this.id,
     required this.name,
     this.description = '',
+    this.imageUrl = '',
     required this.price,
     this.available = true,
     List<MenuChoice>? variants,
@@ -31,6 +32,7 @@ class MenuProduct {
   final String id;
   String name;
   String description;
+  String imageUrl;
   /// Used when [variants] is empty. When variants exist, each variant price is the full price.
   double price;
   bool available;
@@ -41,6 +43,7 @@ class MenuProduct {
         'id': id,
         'name': name,
         'description': description,
+        'imageUrl': imageUrl,
         'price': price,
         'available': available,
         'variants': variants.map((e) => e.toJson()).toList(),
@@ -57,6 +60,7 @@ class MenuProduct {
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       description: json['description']?.toString() ?? '',
+      imageUrl: json['imageUrl']?.toString() ?? '',
       price: (json['price'] as num?)?.toDouble() ?? 0,
       available: json['available'] != false,
       variants: choices(json['variants']),

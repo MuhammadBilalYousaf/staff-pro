@@ -40,6 +40,13 @@ class CustomerOrdersScreen extends StatefulWidget {
 
 class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
   String? _filter;
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,12 +68,23 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
           }
           final docs = snapshot.data!.docs.toList()
             ..sort((a, b) => _millis(b.data()['createdAt']).compareTo(_millis(a.data()['createdAt'])));
+          final query = _search.text.trim().toLowerCase();
           final visible = docs.where((doc) {
-            if (_filter == null) return true;
-            return doc.data()['orderStatus'] == _filter;
+            if (_filter != null && doc.data()['orderStatus'] != _filter) return false;
+            if (query.isEmpty) return true;
+            final orderNumber = doc.data()['orderNumber']?.toString().toLowerCase() ?? '';
+            return orderNumber.contains(query) || doc.id.toLowerCase().contains(query);
           }).toList();
           return Column(
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: SearchField(
+                  controller: _search,
+                  hint: 'Search by order ID',
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
               SizedBox(
                 height: 52,
                 child: ListView(
@@ -92,7 +110,7 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
               ),
               Expanded(
                 child: visible.isEmpty
-                    ? const EmptyView(title: 'No orders in this tab')
+                    ? EmptyView(title: query.isEmpty ? 'No orders in this tab' : 'No orders match this ID')
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                         children: visible.map((doc) => _OrderCard(id: doc.id, data: doc.data())).toList(),
@@ -134,10 +152,21 @@ class _OrderCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text('${data['customerName'] ?? ''} · ${data['phone'] ?? ''}'),
             Text(data['orderType'] == 'dineIn' ? 'Dine-in' : 'Takeaway', style: const TextStyle(color: AppColors.muted)),
+            if (data['orderType'] == 'dineIn')
+              Text(
+                data['dineInPickup'] == true
+                    ? 'Collect from the shop with the order number'
+                    : 'Seat: ${data['seatingNote'] ?? ''}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             const SizedBox(height: 6),
             Text(summary),
             const SizedBox(height: 6),
             Text(Formatters.money((data['total'] as num?)?.toDouble() ?? 0), style: const TextStyle(fontWeight: FontWeight.w800)),
+            if ((data['pointsRedeemed'] as num?) != null && (data['pointsRedeemed'] as num) > 0)
+              Text('Loyalty redeemed: ${data['pointsRedeemed']} points (${Formatters.money((data['loyaltyDiscount'] as num?)?.toDouble() ?? 0)})'),
+            if ((data['loyaltyPointsEarned'] as num?) != null && (data['loyaltyPointsEarned'] as num) > 0)
+              Text('Loyalty earned: ${data['loyaltyPointsEarned']} points'),
             Text('Reference: ${data['paymentReference'] ?? ''}'),
             const SizedBox(height: 8),
             Wrap(

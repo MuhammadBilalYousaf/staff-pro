@@ -86,8 +86,7 @@ service cloud.firestore {
         || (signedIn() && userExists() && role() == 'businessAdmin'
             && resource.data.businessId == userDoc().businessId)
         || (signedIn() && userExists() && role() == 'manager'
-            && resource.data.branchId == userDoc().branchId
-            && resource.data.role in ['manager', 'employee']);
+            && resource.data.branchId == userDoc().branchId);
 
       allow create: if signedIn() && validRole(request.resource.data.role) && (
         (isOwner(userId)
@@ -243,7 +242,8 @@ service cloud.firestore {
     match /publicBusinesses/{slug} {
       allow read: if resource.data.status == 'active'
         || isSuperAdmin()
-        || isBusinessAdmin(resource.data.businessId);
+        || isBusinessAdmin(resource.data.businessId)
+        || sameBusiness(resource.data.businessId);
       allow create: if (isSuperAdmin() || isBusinessAdmin(request.resource.data.businessId))
         && request.resource.data.slug == slug
         && request.resource.data.businessId is string
@@ -258,8 +258,9 @@ service cloud.firestore {
     function staffForOrder() {
       return isSuperAdmin()
         || isBusinessAdmin(resource.data.businessId)
-        || (resource.data.branchId is string
-            && isManager(resource.data.businessId, resource.data.branchId));
+        || (signedIn() && userExists()
+            && role() in ['manager', 'employee']
+            && userDoc().businessId == resource.data.businessId);
     }
 
     match /customers/{uid} {
@@ -274,8 +275,12 @@ service cloud.firestore {
     }
 
     match /customerOrders/{orderId} {
-      allow read: if (signedIn() && resource.data.customerUid == request.auth.uid)
-        || staffForOrder();
+      allow read: if signedIn() && resource.data.customerUid == request.auth.uid;
+      allow read: if staffForOrder();
+      allow list: if isSuperAdmin()
+        || (signedIn() && userExists() && role() in ['businessAdmin', 'manager', 'employee']
+            && resource.data.businessId == userDoc().businessId)
+        || (signedIn() && resource.data.customerUid == request.auth.uid);
 
       allow create: if signedIn()
         && request.resource.data.customerUid == request.auth.uid
@@ -292,9 +297,22 @@ service cloud.firestore {
         && request.resource.data.items is list
         && request.resource.data.items.size() > 0
         && request.resource.data.items.size() <= 40
-        && request.resource.data.total is number
-        && request.resource.data.total > 0
-        && request.resource.data.subtotal == request.resource.data.total;
+        && request.resource.data.subtotal is number
+        && request.resource.data.pointsRedeemed is number
+        && request.resource.data.pointsRedeemed >= 0
+        && request.resource.data.loyaltyDiscount == request.resource.data.pointsRedeemed
+        && request.resource.data.loyaltyPointsEarned == 0
+        && request.resource.data.total == request.resource.data.subtotal - request.resource.data.loyaltyDiscount
+        && request.resource.data.total >= 0
+        && (
+          request.resource.data.pointsRedeemed == 0
+          || (
+            request.auth.token.firebase.sign_in_provider != 'anonymous'
+            && exists(/databases/$(database)/documents/loyaltyAccounts/$(request.resource.data.businessId + '_' + request.auth.uid)/transactions/$(orderId + '_REDEEM'))
+            && get(/databases/$(database)/documents/loyaltyAccounts/$(request.resource.data.businessId + '_' + request.auth.uid)/transactions/$(orderId + '_REDEEM')).data.points == -request.resource.data.pointsRedeemed
+            && get(/databases/$(database)/documents/loyaltyAccounts/$(request.resource.data.businessId + '_' + request.auth.uid)).data.lastAppliedId == orderId + '_REDEEM'
+          )
+        );
 
       allow update: if staffForOrder()
         && request.resource.data.customerUid == resource.data.customerUid
@@ -304,10 +322,144 @@ service cloud.firestore {
         && request.resource.data.subtotal == resource.data.subtotal
         && request.resource.data.paymentReference == resource.data.paymentReference
         && request.resource.data.paymentMethod == resource.data.paymentMethod
+        && (
+          !('pointsRedeemed' in resource.data)
+          || request.resource.data.pointsRedeemed == resource.data.pointsRedeemed
+        )
+        && (
+          !('loyaltyDiscount' in resource.data)
+          || request.resource.data.loyaltyDiscount == resource.data.loyaltyDiscount
+        )
+        && (
+          request.resource.data.get('loyaltyPointsEarned', 0) == resource.data.get('loyaltyPointsEarned', 0)
+          || (request.resource.data.orderStatus == 'COMPLETED'
+              && request.resource.data.loyaltyPointsEarned == math.floor(resource.data.total / 10))
+        )
         && request.resource.data.paymentStatus in ['PENDING_PAYMENT_VERIFICATION', 'PAYMENT_VERIFIED', 'PAYMENT_REJECTED']
         && request.resource.data.orderStatus in ['PENDING_PAYMENT_VERIFICATION', 'PAYMENT_VERIFIED', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'PAYMENT_REJECTED', 'CANCELLED'];
 
+      allow update: if signedIn()
+        && resource.data.customerUid == request.auth.uid
+        && resource.data.orderStatus == 'COMPLETED'
+        && request.resource.data.orderStatus == resource.data.orderStatus
+        && request.resource.data.customerUid == resource.data.customerUid
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.total == resource.data.total
+        && request.resource.data.subtotal == resource.data.subtotal
+        && request.resource.data.items == resource.data.items
+        && request.resource.data.paymentStatus == resource.data.paymentStatus
+        && request.resource.data.paymentReference == resource.data.paymentReference
+        && request.resource.data.loyaltyPointsEarned == math.floor(resource.data.total / 10);
+
       allow delete: if false;
+    }
+
+    function loyaltyStaff(businessId) {
+      return isSuperAdmin() || isBusinessAdmin(businessId)
+        || (signedIn() && userExists() && role() in ['manager', 'employee'] && userDoc().businessId == businessId);
+    }
+
+    function loyaltyTxnPath(businessId, customerId, txnId) {
+      return /databases/$(database)/documents/loyaltyAccounts/$(businessId + '_' + customerId)/transactions/$(txnId);
+    }
+
+    match /loyaltyAccounts/{accountId} {
+      allow get: if signedIn() && (
+        accountId.matches('.*_' + request.auth.uid)
+        || (resource != null && loyaltyStaff(resource.data.businessId))
+      );
+      allow list: if signedIn() && (
+        resource.data.customerId == request.auth.uid
+        || loyaltyStaff(resource.data.businessId)
+      );
+
+      allow create: if signedIn()
+        && accountId == request.resource.data.businessId + '_' + request.resource.data.customerId
+        && (request.auth.uid == request.resource.data.customerId || loyaltyStaff(request.resource.data.businessId))
+        && request.resource.data.pointsBalance is number
+        && request.resource.data.pointsBalance >= 0
+        && request.resource.data.lifetimePoints is number
+        && request.resource.data.applied[request.resource.data.lastAppliedId] == true
+        && exists(loyaltyTxnPath(request.resource.data.businessId, request.resource.data.customerId, request.resource.data.lastAppliedId))
+        && request.resource.data.pointsBalance == (get(loyaltyTxnPath(request.resource.data.businessId, request.resource.data.customerId, request.resource.data.lastAppliedId)).data.points < 0 ? 0 : get(loyaltyTxnPath(request.resource.data.businessId, request.resource.data.customerId, request.resource.data.lastAppliedId)).data.points)
+        && (
+          get(loyaltyTxnPath(request.resource.data.businessId, request.resource.data.customerId, request.resource.data.lastAppliedId)).data.type == 'EARN'
+            ? request.resource.data.lifetimePoints == request.resource.data.pointsBalance
+            : request.resource.data.lifetimePoints == 0
+        );
+
+      allow update: if signedIn()
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.lastAppliedId != resource.data.get('lastAppliedId', '')
+        && (
+          !('applied' in resource.data)
+          || !(request.resource.data.lastAppliedId in resource.data.applied)
+        )
+        && request.resource.data.applied[request.resource.data.lastAppliedId] == true
+        && (request.auth.uid == resource.data.customerId || loyaltyStaff(resource.data.businessId))
+        && exists(loyaltyTxnPath(resource.data.businessId, resource.data.customerId, request.resource.data.lastAppliedId))
+        && request.resource.data.pointsBalance == (resource.data.pointsBalance + get(loyaltyTxnPath(resource.data.businessId, resource.data.customerId, request.resource.data.lastAppliedId)).data.points < 0 ? 0 : resource.data.pointsBalance + get(loyaltyTxnPath(resource.data.businessId, resource.data.customerId, request.resource.data.lastAppliedId)).data.points)
+        && (
+          get(loyaltyTxnPath(resource.data.businessId, resource.data.customerId, request.resource.data.lastAppliedId)).data.type == 'EARN'
+            ? request.resource.data.lifetimePoints == resource.data.lifetimePoints + get(loyaltyTxnPath(resource.data.businessId, resource.data.customerId, request.resource.data.lastAppliedId)).data.points
+            : request.resource.data.lifetimePoints == resource.data.get('lifetimePoints', 0)
+        );
+
+      allow delete: if false;
+
+      match /transactions/{txnId} {
+        allow get: if signedIn() && (
+          accountId.matches('.*_' + request.auth.uid)
+          || (resource != null && loyaltyStaff(resource.data.businessId))
+        );
+        allow list: if signedIn() && (
+          resource.data.customerId == request.auth.uid
+          || isSuperAdmin()
+          || (userExists()
+              && role() in ['businessAdmin', 'manager', 'employee']
+              && resource.data.businessId == userDoc().businessId)
+        );
+
+        allow create: if signedIn()
+          && request.resource.data.customerId is string
+          && request.resource.data.businessId is string
+          && request.resource.data.orderId is string
+          && request.resource.data.points is number
+          && request.resource.data.type in ['EARN', 'REDEEM', 'REVERSAL', 'ADJUSTMENT']
+          && accountId == request.resource.data.businessId + '_' + request.resource.data.customerId
+          && (request.auth.uid == request.resource.data.customerId || loyaltyStaff(request.resource.data.businessId))
+          && (
+            request.resource.data.type == 'EARN'
+              && txnId == request.resource.data.orderId + '_EARN'
+              && get(/databases/$(database)/documents/customerOrders/$(request.resource.data.orderId)).data.orderStatus == 'COMPLETED'
+              && (
+                !('customerKind' in get(/databases/$(database)/documents/customerOrders/$(request.resource.data.orderId)).data)
+                || get(/databases/$(database)/documents/customerOrders/$(request.resource.data.orderId)).data.customerKind != 'guest'
+              )
+              && get(/databases/$(database)/documents/customerOrders/$(request.resource.data.orderId)).data.customerUid == request.resource.data.customerId
+              && request.resource.data.points == math.floor(get(/databases/$(database)/documents/customerOrders/$(request.resource.data.orderId)).data.total / 10)
+              && request.resource.data.points > 0
+            || request.resource.data.type == 'REDEEM'
+              && txnId == request.resource.data.orderId + '_REDEEM'
+              && request.auth.uid == request.resource.data.customerId
+              && request.auth.token.firebase.sign_in_provider != 'anonymous'
+              && request.resource.data.points < 0
+            || request.resource.data.type == 'REVERSAL'
+              && (
+                txnId == request.resource.data.orderId + '_EARN_REVERSAL'
+                  && get(/databases/$(database)/documents/customerOrders/$(request.resource.data.orderId)).data.orderStatus in ['CANCELLED', 'PAYMENT_REJECTED']
+                  && exists(loyaltyTxnPath(request.resource.data.businessId, request.resource.data.customerId, request.resource.data.orderId + '_EARN'))
+                  && request.resource.data.points == -get(loyaltyTxnPath(request.resource.data.businessId, request.resource.data.customerId, request.resource.data.orderId + '_EARN')).data.points
+                || txnId == request.resource.data.orderId + '_REDEEM_REVERSAL'
+                  && get(/databases/$(database)/documents/customerOrders/$(request.resource.data.orderId)).data.orderStatus in ['CANCELLED', 'PAYMENT_REJECTED']
+                  && request.resource.data.points == get(/databases/$(database)/documents/customerOrders/$(request.resource.data.orderId)).data.pointsRedeemed
+                  && request.resource.data.points > 0
+              )
+          );
+
+        allow update, delete: if false;
+      }
     }
 
     match /publicMenus/{businessId} {

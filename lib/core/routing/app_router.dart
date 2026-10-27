@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:staffpro/features/auth/auth_screens.dart';
 import 'package:staffpro/features/operations/customer_orders_screen.dart';
+import 'package:staffpro/features/operations/customers_screen.dart';
 import 'package:staffpro/features/operations/menu_screen.dart';
 import 'package:staffpro/features/operations/role_screens.dart';
 import 'package:staffpro/features/shared/shared_screens.dart';
@@ -113,6 +114,8 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/ba/categories', builder: (_, __) => const ExpenseCategoriesScreen()),
       GoRoute(path: '/ba/menu', builder: (_, __) => const MenuScreen()),
       GoRoute(path: '/ba/orders', builder: (_, __) => const CustomerOrdersScreen()),
+      GoRoute(path: '/ba/customers', builder: (_, __) => const CustomersScreen(detailPrefix: '/ba/customers')),
+      GoRoute(path: '/ba/customers/:id', builder: (_, s) => CustomerDetailScreen(customerId: s.pathParameters['id']!)),
       GoRoute(path: '/ba/shifts', builder: (_, __) => const ShiftManagementScreen()),
       GoRoute(path: '/ba/logs', builder: (_, __) => const ActivityLogsScreen()),
       GoRoute(path: '/ba/password-requests', builder: (_, __) => const PasswordRequestsScreen()),
@@ -143,6 +146,9 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/mg/employees/add', builder: (_, __) => const PersonFormScreen(role: UserRole.employee)),
       GoRoute(path: '/mg/employees/:id', builder: (_, s) => PersonFormScreen(role: UserRole.employee, userId: s.pathParameters['id'])),
       GoRoute(path: '/mg/sales/add', builder: (_, __) => const AddSaleScreen()),
+      GoRoute(path: '/mg/orders', builder: (_, __) => const CustomerOrdersScreen()),
+      GoRoute(path: '/mg/customers', builder: (_, __) => const CustomersScreen(detailPrefix: '/mg/customers')),
+      GoRoute(path: '/mg/customers/:id', builder: (_, s) => CustomerDetailScreen(customerId: s.pathParameters['id']!)),
       GoRoute(path: '/mg/expenses', builder: (_, __) => const ExpensesScreen()),
       GoRoute(path: '/mg/expenses/add', builder: (_, __) => const AddExpenseScreen()),
       GoRoute(path: '/mg/attendance/history', builder: (_, __) => const AttendanceHistoryScreen()),
@@ -173,6 +179,7 @@ GoRouter createRouter(StaffProController app) {
           StatefulShellBranch(routes: [GoRoute(path: '/emp/more', builder: (_, __) => const EmployeeMoreScreen())]),
         ],
       ),
+      GoRoute(path: '/emp/orders', builder: (_, __) => const CustomerOrdersScreen()),
       GoRoute(path: '/emp/sales/add', builder: (_, __) => const AddSaleScreen()),
       GoRoute(path: '/emp/expenses/add', builder: (_, __) => const AddExpenseScreen()),
       GoRoute(path: '/emp/attendance/history', builder: (_, __) => const AttendanceHistoryScreen()),

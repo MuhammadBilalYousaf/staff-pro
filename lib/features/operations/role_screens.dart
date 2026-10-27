@@ -606,6 +606,7 @@ class BusinessMoreScreen extends StatelessWidget {
                   if (app.canManageAdmins)
                     MenuTile(icon: Icons.admin_panel_settings_outlined, label: 'Manage Admins', onTap: () => context.push('/ba/admins')),
                   MenuTile(icon: Icons.point_of_sale, label: 'Sales', onTap: () => context.push('/ba/sales')),
+                  MenuTile(icon: Icons.people_alt_outlined, label: 'Customers', onTap: () => context.push('/ba/customers')),
                   MenuTile(icon: Icons.shopping_bag_outlined, label: 'Customer orders', onTap: () => context.push('/ba/orders')),
                   MenuTile(icon: Icons.receipt_long_outlined, label: 'Expenses', onTap: () => context.push('/ba/expenses')),
                   MenuTile(icon: Icons.fact_check_outlined, label: 'Attendance', onTap: () => context.push('/ba/attendance')),
@@ -973,6 +974,8 @@ class ManagerMoreScreen extends StatelessWidget {
             AppCard(
               child: Column(
                 children: [
+                  MenuTile(icon: Icons.shopping_bag_outlined, label: 'Customer orders', onTap: () => context.push('/mg/orders')),
+                  MenuTile(icon: Icons.people_alt_outlined, label: 'Customers', onTap: () => context.push('/mg/customers')),
                   MenuTile(icon: Icons.receipt_long_outlined, label: 'Expenses', onTap: () => context.push('/mg/expenses')),
                   MenuTile(icon: Icons.fact_check_outlined, label: 'Team Attendance', onTap: () => context.push('/mg/attendance/team')),
                   MenuTile(icon: Icons.lock_reset, label: 'Password Requests', onTap: () => context.push('/mg/password-requests')),
@@ -1018,6 +1021,7 @@ class EmployeeMoreScreen extends StatelessWidget {
             AppCard(
               child: Column(
                 children: [
+                  MenuTile(icon: Icons.shopping_bag_outlined, label: 'Customer orders', onTap: () => context.push('/emp/orders')),
                   MenuTile(icon: Icons.person_outline, label: 'Profile', onTap: () => context.push('/emp/profile')),
                   MenuTile(icon: Icons.lock_outline, label: 'Change Password', onTap: () => context.push('/emp/password')),
                   MenuTile(

@@ -123,42 +123,55 @@ class FirestoreDatabase {
 
     users
       ..clear()
-      ..addAll(await _loadUsers(user));
+      ..addAll(await _safe(_loadUsers(user)));
     businesses
       ..clear()
-      ..addAll(await _loadBusinesses(user));
+      ..addAll(await _safe(_loadBusinesses(user)));
     branches
       ..clear()
-      ..addAll(await _loadBranches(user));
+      ..addAll(await _safe(_loadBranches(user)));
     shifts
       ..clear()
-      ..addAll(await _loadByBusiness(FirestorePaths.shifts, user, Shift.fromJson));
+      ..addAll(await _safe(_loadByBusiness(FirestorePaths.shifts, user, Shift.fromJson)));
     expenseCategories
       ..clear()
-      ..addAll(await _loadByBusiness(FirestorePaths.expenseCategories, user, ExpenseCategory.fromJson));
+      ..addAll(await _safe(_loadByBusiness(FirestorePaths.expenseCategories, user, ExpenseCategory.fromJson)));
     sales
       ..clear()
-      ..addAll(await _loadSales(user));
+      ..addAll(await _safe(_loadSales(user)));
     expenses
       ..clear()
-      ..addAll(await _loadExpenses(user));
+      ..addAll(await _safe(_loadExpenses(user)));
     attendance
       ..clear()
-      ..addAll(await _loadAttendance(user));
+      ..addAll(await _safe(_loadAttendance(user)));
     notifications
       ..clear()
-      ..addAll(await _loadNotifications(user));
+      ..addAll(await _safe(_loadNotifications(user)));
     auditLogs
       ..clear()
-      ..addAll(await _loadAuditLogs(user));
+      ..addAll(await _safe(_loadAuditLogs(user)));
     assignments
       ..clear()
-      ..addAll(await _loadAssignments(user));
+      ..addAll(await _safe(_loadAssignments(user)));
     passwordRequests
       ..clear()
-      ..addAll(await _loadPasswordRequests(user));
-    publicMenu = await loadPublicMenu(user.businessId);
-    publicBusiness = await loadPublicBusiness(user.businessId);
+      ..addAll(await _safe(_loadPasswordRequests(user)));
+    try {
+      publicMenu = await loadPublicMenu(user.businessId);
+      publicBusiness = await loadPublicBusiness(user.businessId);
+    } on FirebaseException catch (error) {
+      if (error.code != 'permission-denied') rethrow;
+    }
+  }
+
+  Future<List<T>> _safe<T>(Future<List<T>> future) async {
+    try {
+      return await future;
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') return <T>[];
+      rethrow;
+    }
   }
 
   Future<void> clearSessionCache() async {
@@ -213,12 +226,89 @@ class FirestoreDatabase {
     return _fs.collection(FirestorePaths.customerOrders).where('businessId', isEqualTo: businessId).snapshots();
   }
 
-  Future<void> updateCustomerOrder(String orderId, {String? paymentStatus, String? orderStatus}) {
-    return _fs.collection(FirestorePaths.customerOrders).doc(orderId).update({
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchLoyaltyAccounts(String businessId) {
+    return _fs.collection(FirestorePaths.loyaltyAccounts).where('businessId', isEqualTo: businessId).snapshots();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchLoyaltyTransactions(String businessId, String customerId) {
+    return _fs
+        .collection(FirestorePaths.loyaltyAccounts)
+        .doc('${businessId}_$customerId')
+        .collection('transactions')
+        .where('businessId', isEqualTo: businessId)
+        .snapshots();
+  }
+
+  Future<void> updateCustomerOrder(String orderId, {String? paymentStatus, String? orderStatus}) async {
+    await _fs.collection(FirestorePaths.customerOrders).doc(orderId).update({
       if (paymentStatus != null) 'paymentStatus': paymentStatus,
       if (orderStatus != null) 'orderStatus': orderStatus,
       'updatedAt': DateTime.now().toIso8601String(),
     });
+    await _syncCustomerLoyalty(orderId);
+  }
+
+  /// Awards or reverses loyalty once per order. Repeating the status change does nothing.
+  Future<void> _syncCustomerLoyalty(String orderId) async {
+    final orderRef = _fs.collection(FirestorePaths.customerOrders).doc(orderId);
+    final snap = await orderRef.get();
+    final data = snap.data();
+    if (data == null || data['customerKind'] == 'guest') return;
+    final uid = data['customerUid']?.toString() ?? '';
+    final businessId = data['businessId']?.toString() ?? '';
+    if (uid.isEmpty || businessId.isEmpty) return;
+    final status = data['orderStatus']?.toString() ?? '';
+    final total = (data['total'] as num?)?.toDouble() ?? 0;
+    final earned = total <= 0 ? 0 : (total ~/ 10);
+    final redeemed = (data['pointsRedeemed'] as num?)?.toInt() ?? 0;
+    final account = _fs.collection('loyaltyAccounts').doc('${businessId}_$uid');
+    Future<void> apply(String txnId, String type, int points, String description) async {
+      final txn = account.collection('transactions').doc(txnId);
+      final existing = await txn.get();
+      if (existing.exists) return;
+      await txn.set({
+        'customerId': uid,
+        'businessId': businessId,
+        'orderId': orderId,
+        'orderNumber': data['orderNumber'] ?? '',
+        'type': type,
+        'points': points,
+        'description': description,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      await _fs.runTransaction((tx) async {
+        final accountSnap = await tx.get(account);
+        final current = accountSnap.data() ?? {};
+        final applied = Map<String, dynamic>.from(current['applied'] as Map? ?? {});
+        if (applied[txnId] == true) return;
+        final balance = (current['pointsBalance'] as num?)?.toInt() ?? 0;
+        final lifetime = (current['lifetimePoints'] as num?)?.toInt() ?? 0;
+        final nextBalance = balance + points < 0 ? 0 : balance + points;
+        applied[txnId] = true;
+        tx.set(account, {
+          'customerId': uid,
+          'businessId': businessId,
+          'pointsBalance': nextBalance,
+          'lifetimePoints': type == 'EARN' ? lifetime + points : lifetime,
+          'lastAppliedId': txnId,
+          'applied': applied,
+        }, SetOptions(merge: true));
+      });
+    }
+    if (status == 'COMPLETED' && earned > 0) {
+      await apply('${orderId}_EARN', 'EARN', earned, 'Earned on order ${data['orderNumber'] ?? orderId}');
+      await orderRef.update({'loyaltyPointsEarned': earned});
+    }
+    if (status == 'CANCELLED' || status == 'PAYMENT_REJECTED') {
+      final earn = await account.collection('transactions').doc('${orderId}_EARN').get();
+      if (earn.exists) {
+        final points = (earn.data()?['points'] as num?)?.toInt() ?? 0;
+        await apply('${orderId}_EARN_REVERSAL', 'REVERSAL', -points.abs(), 'Reversed earn for order ${data['orderNumber'] ?? orderId}');
+      }
+      if (redeemed > 0) {
+        await apply('${orderId}_REDEEM_REVERSAL', 'REVERSAL', redeemed, 'Returned points for order ${data['orderNumber'] ?? orderId}');
+      }
+    }
   }
 
   /// Writes a single audit log (e.g. login/logout) without rewriting other collections.

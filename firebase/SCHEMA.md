@@ -24,9 +24,10 @@ Auth: Firebase Authentication (email/password). `users/{uid}` document IDs match
 | `assignments` | uuid | Branch transfer history |
 | `passwordRequests` | uuid | In-app recovery requests |
 | `publicMenus` | businessId | Customer menu: categories, products, variant prices, add-ons. Public read. |
-| `publicBusinesses` | slug | Public ordering page: business id, display name, payment instructions. Active docs are public read. |
+| `publicBusinesses` | slug | Public ordering page: business id, display name, payment instructions, `cashOnDelivery` (default off). Active docs are public read. |
 | `customers` | Auth UID | Ordering-site profile only. The customer can read and update their own doc. Not a StaffPro staff user. |
 | `customerOrders` | auto | Customer QR orders. Guest or account. Customer creates only as pending payment verification and can read their own order. Staff of that business update status. |
+| `orderFeedback` | orderId | One feedback record per completed order. Customer who placed it can create and edit rating/comment. Staff of that business can read and mark `status` `new` or `reviewed`. |
 | `loyaltyAccounts` | `{businessId}_{customerId}` | Points balance. Staff of that business can list accounts and their transactions. |
 
 ## Roles

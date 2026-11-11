@@ -39,6 +39,31 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/staffpro_logo.png
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/staffpro_logo.png
+  # Keep full wordmark inside Android's adaptive safe zone.
+  adaptive_icon_foreground_inset: 22
+  remove_alpha_ios: true
+  background_color_ios: "#FFFFFF"
+  web:
+    generate: true
+    image_path: assets/staffpro_logo.png
+    background_color: "#FFFFFF"
+    theme_color: "#FF6A00"
+  windows:
+    generate: true
+    image_path: assets/staffpro_logo.png
+    icon_size: 256
+  macos:
+    generate: false
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/staffpro_logo.png

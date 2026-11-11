@@ -6,12 +6,23 @@ import 'package:staffpro/core/theme/app_colors.dart';
 import 'package:staffpro/core/utils/formatters.dart';
 import 'package:staffpro/core/validators/validators.dart';
 import 'package:staffpro/core/widgets/ui_kit.dart';
-import 'package:staffpro/features/shells/app_shell.dart';
 import 'package:staffpro/models/enums.dart';
 import 'package:staffpro/state/app_state.dart';
 
 class SuperAdminDashboard extends StatelessWidget {
   const SuperAdminDashboard({super.key});
+
+  Widget _saStat(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, color: AppColors.primary, size: 22),
+        const SizedBox(height: 8),
+        Text(value, style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w800, fontSize: 20)),
+        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,14 +35,35 @@ class SuperAdminDashboard extends StatelessWidget {
     final employees = app.db.users.where((u) => u.role == UserRole.employee).length;
     final logs = app.visibleLogs().take(8).toList();
     return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 24),
+      backgroundColor: Colors.transparent,
+      body: ListView(
+          padding: const EdgeInsets.only(bottom: 110),
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-              child: Text('${Formatters.greeting()}, ${app.currentUser?.firstName ?? 'Super Admin'}!', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              child: Text('Hello, ${app.currentUser?.firstName ?? 'Super Admin'}! 👋', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.text)),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: AppCard(
+                color: AppColors.glassStrong,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Platform Overview', style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(child: _saStat('Businesses', '${businesses.length}', Icons.apartment_outlined)),
+                        Expanded(child: _saStat('Branches', '${app.db.branches.length}', Icons.storefront_outlined)),
+                        Expanded(child: _saStat('Staff', '$employees', Icons.groups_outlined)),
+                      ],
+                    ),
+                  ],
+                ),
+              ).animate().fadeIn(),
+            ),
+            const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: GridView.count(
@@ -40,16 +72,14 @@ class SuperAdminDashboard extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 mainAxisSpacing: 10,
                 crossAxisSpacing: 10,
-                childAspectRatio: 1.35,
+                childAspectRatio: 1.4,
                 children: [
-                  KpiCard(label: 'Total Businesses', value: '${businesses.length}', icon: Icons.apartment_outlined),
                   KpiCard(label: 'Active Businesses', value: '$active', icon: Icons.verified_outlined, iconColor: AppColors.success),
-                  KpiCard(label: 'Total Admins', value: '$admins', icon: Icons.admin_panel_settings_outlined),
-                  KpiCard(label: 'Total Branches', value: '${app.db.branches.length}', icon: Icons.storefront_outlined),
-                  KpiCard(label: 'Total Employees', value: '$employees', icon: Icons.groups_outlined, iconColor: AppColors.teal),
+                  KpiCard(label: 'Total Admins', value: '$admins', icon: Icons.admin_panel_settings_outlined, iconColor: AppColors.purple),
+                  KpiCard(label: 'Managers', value: '$managers', icon: Icons.manage_accounts_outlined, iconColor: AppColors.blue),
                   KpiCard(label: 'Inactive', value: '$inactive', icon: Icons.domain_disabled_outlined, iconColor: AppColors.danger),
                 ],
-              ).animate().fadeIn(),
+              ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
@@ -60,15 +90,16 @@ class SuperAdminDashboard extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-              child: Wrap(
-                spacing: 8,
-                children: [
-                  ActionChip(label: const Text('Businesses'), onPressed: () => context.go('/sa/businesses')),
-                  ActionChip(label: const Text('Admins'), onPressed: () => context.push('/sa/admins')),
-                  ActionChip(label: const Text('Reports'), onPressed: () => context.go('/sa/reports')),
-                  ActionChip(label: Text('Managers ($managers)'), onPressed: () => context.push('/sa/managers')),
-                ],
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: AppCard(
+                child: Column(
+                  children: [
+                    MenuTile(icon: Icons.apartment_outlined, label: 'Businesses', color: AppColors.primary, onTap: () => context.go('/sa/businesses')),
+                    MenuTile(icon: Icons.admin_panel_settings_outlined, label: 'Admins & Managers', color: AppColors.purple, onTap: () => context.push('/sa/admins')),
+                    MenuTile(icon: Icons.bar_chart_rounded, label: 'Reports', color: AppColors.blue, onTap: () => context.go('/sa/reports')),
+                    MenuTile(icon: Icons.settings_outlined, label: 'Platform Settings', color: AppColors.navySoft, onTap: () => context.push('/sa/settings')),
+                  ],
+                ),
               ),
             ),
             const Padding(
@@ -83,13 +114,13 @@ class SuperAdminDashboard extends StatelessWidget {
                     child: AppCard(
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: Text('${l.action.name} ${l.module}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        subtitle: Text('${app.userName(l.performedBy)} · ${Formatters.relative(l.createdAt)}'),
+                        leading: SoftIconBox(icon: Icons.history, color: AppColors.purple, size: 40),
+                        title: Text('${l.action.name} ${l.module}', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text)),
+                        subtitle: Text('${app.userName(l.performedBy)} · ${Formatters.relative(l.createdAt)}', style: const TextStyle(color: AppColors.muted)),
                       ),
                     ),
                   )),
           ],
-        ),
       ),
     );
   }
@@ -728,51 +759,69 @@ class SuperAdminMoreScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<StaffProController>();
     return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            AppCard(
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(child: Text(Formatters.initials(app.currentUser?.fullName ?? 'SA'))),
-                title: Text(app.currentUser?.fullName ?? '', style: const TextStyle(fontWeight: FontWeight.w800)),
-                subtitle: const Text('Super Admin'),
-              ),
-            ),
-            const SizedBox(height: 12),
-            AppCard(
-              child: Column(
-                children: [
-                  MenuTile(icon: Icons.dashboard_outlined, label: 'Dashboard', onTap: () => context.go('/sa')),
-                  MenuTile(icon: Icons.apartment_outlined, label: 'Businesses', onTap: () => context.go('/sa/businesses')),
-                  MenuTile(icon: Icons.admin_panel_settings_outlined, label: 'Business Admins', onTap: () => context.push('/sa/admins')),
-                  MenuTile(icon: Icons.manage_accounts_outlined, label: 'Managers', onTap: () => context.push('/sa/managers')),
-                  MenuTile(icon: Icons.bar_chart_rounded, label: 'Reports', onTap: () => context.go('/sa/reports')),
-                  MenuTile(icon: Icons.notifications_none, label: 'Notifications', onTap: () => context.go('/sa/notifications')),
-                  MenuTile(icon: Icons.history, label: 'Activity Logs', onTap: () => context.push('/sa/logs')),
-                  MenuTile(icon: Icons.person_outline, label: 'Profile', onTap: () => context.push('/sa/profile')),
-                  MenuTile(icon: Icons.lock_outline, label: 'Change Password', onTap: () => context.push('/sa/password')),
-                  MenuTile(icon: Icons.settings_outlined, label: 'Settings', onTap: () => context.push('/sa/settings')),
-                  MenuTile(icon: Icons.help_outline, label: 'Help & Support', onTap: () => context.push('/sa/help')),
-                  MenuTile(icon: Icons.info_outline, label: 'About App', onTap: () => context.push('/sa/about')),
-                  MenuTile(
-                    icon: Icons.logout,
-                    label: 'Logout',
-                    color: AppColors.danger,
-                    onTap: () async {
-                      final ok = await confirmAction(context, title: 'Logout?', message: 'Sign out of StaffPro?', confirmLabel: 'Logout', destructive: true);
-                      if (ok && context.mounted) {
-                        await app.logout();
-                        if (context.mounted) context.go('/login');
-                      }
-                    },
+      backgroundColor: Colors.transparent,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 110),
+        children: [
+          const Text('More', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.text)),
+          const SizedBox(height: 4),
+          const Text('Platform controls and account settings', style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w500, fontSize: 14)),
+          const SizedBox(height: 14),
+          AppCard(
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: AppColors.purple.withValues(alpha: 0.22),
+                  child: Text(Formatters.initials(app.currentUser?.fullName ?? 'SA'), style: const TextStyle(color: AppColors.purple, fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(app.currentUser?.fullName ?? '', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.text)),
+                      const SizedBox(height: 2),
+                      const Text('Super Admin', style: TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w600)),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 14),
+          AppCard(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+            child: Column(
+              children: [
+                MenuTile(icon: Icons.dashboard_outlined, label: 'Dashboard', color: AppColors.primary, onTap: () => context.go('/sa')),
+                MenuTile(icon: Icons.apartment_outlined, label: 'Businesses', color: AppColors.blue, onTap: () => context.go('/sa/businesses')),
+                MenuTile(icon: Icons.admin_panel_settings_outlined, label: 'Business Admins', color: AppColors.purple, onTap: () => context.push('/sa/admins')),
+                MenuTile(icon: Icons.manage_accounts_outlined, label: 'Managers', color: AppColors.info, onTap: () => context.push('/sa/managers')),
+                MenuTile(icon: Icons.bar_chart_rounded, label: 'Reports', color: AppColors.success, onTap: () => context.go('/sa/reports')),
+                MenuTile(icon: Icons.notifications_none, label: 'Notifications', color: AppColors.warning, onTap: () => context.go('/sa/notifications')),
+                MenuTile(icon: Icons.history, label: 'Activity Logs', color: AppColors.muted, onTap: () => context.push('/sa/logs')),
+                MenuTile(icon: Icons.person_outline, label: 'Profile', color: AppColors.primary, onTap: () => context.push('/sa/profile')),
+                MenuTile(icon: Icons.lock_outline, label: 'Change Password', color: AppColors.blue, onTap: () => context.push('/sa/password')),
+                MenuTile(icon: Icons.settings_outlined, label: 'Settings', color: AppColors.teal, onTap: () => context.push('/sa/settings')),
+                MenuTile(icon: Icons.help_outline, label: 'Help & Support', color: AppColors.info, onTap: () => context.push('/sa/help')),
+                MenuTile(icon: Icons.info_outline, label: 'About App', color: AppColors.muted, onTap: () => context.push('/sa/about')),
+                MenuTile(
+                  icon: Icons.logout,
+                  label: 'Logout',
+                  color: AppColors.danger,
+                  onTap: () async {
+                    final ok = await confirmAction(context, title: 'Logout?', message: 'Sign out of StaffPro?', confirmLabel: 'Logout', destructive: true);
+                    if (ok && context.mounted) {
+                      await app.logout();
+                      if (context.mounted) context.go('/login');
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

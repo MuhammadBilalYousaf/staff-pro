@@ -205,14 +205,31 @@ class FirestoreDatabase {
     final snap = await _fs
         .collection(FirestorePaths.publicBusinesses)
         .where('businessId', isEqualTo: businessId)
-        .limit(1)
         .get();
     if (snap.docs.isEmpty) return null;
-    return PublicBusiness.fromJson(snap.docs.first.data());
+    final profiles = snap.docs.map((doc) => PublicBusiness.fromJson(doc.data())).toList();
+    final active = profiles.where((item) => item.status == 'active').toList();
+    final pool = active.isEmpty ? profiles : active;
+    pool.sort((a, b) {
+      final aTime = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final byTime = bTime.compareTo(aTime);
+      if (byTime != 0) return byTime;
+      return b.slug.compareTo(a.slug);
+    });
+    return pool.first;
   }
 
   Future<void> savePublicBusiness(PublicBusiness profile) async {
-    await _fs.collection(FirestorePaths.publicBusinesses).doc(profile.slug).set(profile.toJson());
+    final collection = _fs.collection(FirestorePaths.publicBusinesses);
+    final others = await collection.where('businessId', isEqualTo: profile.businessId).get();
+    for (final doc in others.docs) {
+      if (doc.id == profile.slug) continue;
+      if (doc.data()['status'] == 'inactive') continue;
+      await doc.reference.update({'status': 'inactive'});
+    }
+    profile.updatedAt = DateTime.now();
+    await collection.doc(profile.slug).set(profile.toJson());
     publicBusiness = profile;
   }
 
@@ -222,8 +239,45 @@ class FirestoreDatabase {
     publicMenu = menu;
   }
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchOrderFeedback(String businessId) {
+    return _fs.collection(FirestorePaths.orderFeedback).where('businessId', isEqualTo: businessId).snapshots();
+  }
+
+  Future<void> reviewOrderFeedback(String orderId, String status) async {
+    await _fs.collection(FirestorePaths.orderFeedback).doc(orderId).update({
+      'status': status,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Stream<QuerySnapshot<Map<String, dynamic>>> watchCustomerOrders(String businessId) {
     return _fs.collection(FirestorePaths.customerOrders).where('businessId', isEqualTo: businessId).snapshots();
+  }
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> watchCustomerOrder(String orderId) {
+    return _fs.collection(FirestorePaths.customerOrders).doc(orderId).snapshots();
+  }
+
+  Future<void> addCustomerOrderComment({
+    required String orderId,
+    required String text,
+    required String authorId,
+    required String authorName,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    await _fs.collection(FirestorePaths.customerOrders).doc(orderId).update({
+      'staffComments': FieldValue.arrayUnion([
+        {
+          'id': DateTime.now().millisecondsSinceEpoch.toString(),
+          'text': trimmed,
+          'authorId': authorId,
+          'authorName': authorName,
+          'createdAt': DateTime.now().toIso8601String(),
+        },
+      ]),
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> watchLoyaltyAccounts(String businessId) {
@@ -468,6 +522,16 @@ class FirestoreDatabase {
       }
       await batch.commit();
     }
+  }
+
+  Future<void> deleteSaleDoc(String id) async {
+    await _fs.collection(FirestorePaths.sales).doc(id).delete();
+    sales.removeWhere((e) => e.id == id);
+  }
+
+  Future<void> deleteExpenseDoc(String id) async {
+    await _fs.collection(FirestorePaths.expenses).doc(id).delete();
+    expenses.removeWhere((e) => e.id == id);
   }
 
   Future<List<AppUser>> _loadUsers(AppUser user) async {

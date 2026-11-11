@@ -2,39 +2,49 @@ import 'package:flutter/material.dart';
 import 'package:staffpro/core/theme/app_colors.dart';
 
 class BrandLogo extends StatelessWidget {
-  const BrandLogo({super.key, this.size = 72, this.showWordmark = true});
+  const BrandLogo({
+    super.key,
+    this.size = 72,
+    this.showWordmark = true,
+    this.borderRadius,
+  });
+
+  static const assetPath = 'assets/staffpro_logo.png';
 
   final double size;
   final bool showWordmark;
+  final double? borderRadius;
 
   @override
   Widget build(BuildContext context) {
+    final radius = borderRadius ?? size * 0.22;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          width: size,
-          height: size,
-          child: CustomPaint(painter: _LogoPainter()),
-        ),
-        if (showWordmark) ...[
-          const SizedBox(height: 8),
-          Text(
-            'StaffPro',
-            style: TextStyle(
-              fontSize: size * 0.28,
-              fontWeight: FontWeight.w800,
-              color: AppColors.navy,
-              letterSpacing: -0.4,
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            boxShadow: AppColors.orangeGlow,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: Image.asset(
+              assetPath,
+              width: size,
+              height: size,
+              filterQuality: FilterQuality.high,
+              fit: BoxFit.cover,
             ),
           ),
-          const SizedBox(height: 2),
+        ),
+        if (showWordmark) ...[
+          const SizedBox(height: 10),
           Text(
             'Manage People. Grow Business.',
             style: TextStyle(
               fontSize: size * 0.13,
               color: AppColors.muted,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -43,83 +53,126 @@ class BrandLogo extends StatelessWidget {
   }
 }
 
-class _LogoPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.primary
-      ..style = PaintingStyle.fill
-      ..strokeCap = StrokeCap.round;
+class BrandMark extends StatelessWidget {
+  const BrandMark({super.key, this.size = 36});
 
-    final w = size.width;
-    final h = size.height;
-    void person(double cx, double headR, double bodyW, double bodyH) {
-      canvas.drawCircle(Offset(cx, h * 0.32), headR, paint);
-      final body = Path()
-        ..moveTo(cx - bodyW / 2, h * 0.44)
-        ..quadraticBezierTo(cx, h * 0.40, cx + bodyW / 2, h * 0.44)
-        ..lineTo(cx + bodyW / 2.4, h * 0.44 + bodyH)
-        ..quadraticBezierTo(cx, h * 0.44 + bodyH + 4, cx - bodyW / 2.4, h * 0.44 + bodyH)
-        ..close();
-      canvas.drawPath(body, paint);
-    }
-
-    person(w * 0.28, w * 0.07, w * 0.22, h * 0.22);
-    person(w * 0.50, w * 0.09, w * 0.28, h * 0.28);
-    person(w * 0.72, w * 0.07, w * 0.22, h * 0.22);
-
-    final arc = Paint()
-      ..color = AppColors.primary
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.045
-      ..strokeCap = StrokeCap.round;
-    canvas.drawArc(
-      Rect.fromCenter(center: Offset(w / 2, h * 0.92), width: w * 0.72, height: h * 0.28),
-      3.5,
-      2.4,
-      false,
-      arc,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class DecorativeBackground extends StatelessWidget {
-  const DecorativeBackground({super.key, required this.child});
-  final Widget child;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.28),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.28),
+        child: Image.asset(
+          BrandLogo.assetPath,
+          width: size,
+          height: size,
+          filterQuality: FilterQuality.high,
+          fit: BoxFit.cover,
+        ),
+      ),
+    );
+  }
+}
+
+/// Dark glass page backdrop with soft orange / blue glow blobs.
+class DecorativeBackground extends StatelessWidget {
+  const DecorativeBackground({super.key, required this.child, this.includeSafeArea = false});
+  final Widget child;
+  final bool includeSafeArea;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = includeSafeArea ? SafeArea(child: child) : child;
     return Stack(
       children: [
+        const Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF07111F),
+                  Color(0xFF0A1628),
+                  Color(0xFF050B14),
+                ],
+              ),
+            ),
+          ),
+        ),
         Positioned(
-          top: -80,
+          top: -120,
+          left: -80,
+          child: _blob(280, AppColors.primary.withValues(alpha: 0.22)),
+        ),
+        Positioned(
+          top: 180,
+          right: -100,
+          child: _blob(260, AppColors.blue.withValues(alpha: 0.16)),
+        ),
+        Positioned(
+          bottom: -80,
           left: -60,
-          child: Container(
-            width: 220,
-            height: 220,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.wash.withValues(alpha: 0.9),
-            ),
-          ),
+          child: _blob(220, AppColors.purple.withValues(alpha: 0.10)),
         ),
         Positioned(
-          bottom: -90,
-          right: -70,
-          child: Container(
-            width: 240,
-            height: 240,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.wash.withValues(alpha: 0.8),
-            ),
-          ),
+          bottom: 120,
+          right: -40,
+          child: _blob(160, AppColors.primary.withValues(alpha: 0.10)),
         ),
-        child,
+        content,
       ],
+    );
+  }
+
+  static Widget _blob(double size, Color color) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color,
+      ),
+    );
+  }
+}
+
+class GlassScaffold extends StatelessWidget {
+  const GlassScaffold({
+    super.key,
+    required this.body,
+    this.appBar,
+    this.floatingActionButton,
+    this.bottomNavigationBar,
+    this.extendBody = false,
+  });
+
+  final Widget body;
+  final PreferredSizeWidget? appBar;
+  final Widget? floatingActionButton;
+  final Widget? bottomNavigationBar;
+  final bool extendBody;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      extendBody: extendBody,
+      appBar: appBar,
+      floatingActionButton: floatingActionButton,
+      bottomNavigationBar: bottomNavigationBar,
+      body: DecorativeBackground(child: body),
     );
   }
 }

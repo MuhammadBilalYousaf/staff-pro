@@ -13,6 +13,57 @@ import 'package:staffpro/services/firebase_auth_service.dart';
 import 'package:staffpro/services/location_service.dart';
 import 'package:uuid/uuid.dart';
 
+class AccountsSummary {
+  const AccountsSummary({
+    this.sales = 0,
+    this.expenses = 0,
+    this.cashSales = 0,
+    this.cashExpenses = 0,
+    this.cardSales = 0,
+    this.cardExpenses = 0,
+    this.onlineSales = 0,
+    this.onlineExpenses = 0,
+  });
+
+  final double sales;
+  final double expenses;
+  final double cashSales;
+  final double cashExpenses;
+  final double cardSales;
+  final double cardExpenses;
+  final double onlineSales;
+  final double onlineExpenses;
+
+  double get cashInHand => cashSales - cashExpenses;
+  double get cardBalance => cardSales - cardExpenses;
+  double get onlineBalance => onlineSales - onlineExpenses;
+  double get totalBalance => sales - expenses;
+
+  static String _bucket(String method) {
+    final value = method.trim().toLowerCase();
+    if (value == 'cash') return 'cash';
+    if (value == 'card') return 'card';
+    if (value.contains('bank') || value.contains('transfer') || value.contains('online') || value.contains('jazz') || value.contains('easy')) {
+      return 'online';
+    }
+    return 'online';
+  }
+}
+
+class StaffAccountsRow {
+  const StaffAccountsRow({required this.user, required this.accounts});
+  final AppUser user;
+  final AccountsSummary accounts;
+}
+
+class DailyPnLRow {
+  DailyPnLRow({required this.day, this.sales = 0, this.expenses = 0});
+  final DateTime day;
+  double sales;
+  double expenses;
+  double get remaining => sales - expenses;
+}
+
 class PeriodFilter {
   const PeriodFilter({required this.from, required this.to, this.label = 'Custom'});
   final DateTime from;
@@ -25,10 +76,25 @@ class PeriodFilter {
     return PeriodFilter(from: start, to: start.add(const Duration(days: 1)), label: 'Today');
   }
 
+  static PeriodFilter yesterday() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 1));
+    return PeriodFilter(from: start, to: start.add(const Duration(days: 1)), label: 'Yesterday');
+  }
+
   static PeriodFilter week() {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
     return PeriodFilter(from: start, to: start.add(const Duration(days: 7)), label: 'This Week');
+  }
+
+  static PeriodFilter lastWeek() {
+    final week = PeriodFilter.week();
+    return PeriodFilter(
+      from: week.from.subtract(const Duration(days: 7)),
+      to: week.from,
+      label: 'Last Week',
+    );
   }
 
   static PeriodFilter month() {
@@ -36,6 +102,12 @@ class PeriodFilter {
     final start = DateTime(now.year, now.month, 1);
     final end = DateTime(now.year, now.month + 1, 1);
     return PeriodFilter(from: start, to: end, label: 'This Month');
+  }
+
+  static PeriodFilter custom(DateTime start, DateTime end) {
+    final from = DateTime(start.year, start.month, start.day);
+    final to = DateTime(end.year, end.month, end.day).add(const Duration(days: 1));
+    return PeriodFilter(from: from, to: to, label: 'Custom');
   }
 
   bool contains(DateTime value) => !value.isBefore(from) && value.isBefore(to);
@@ -165,6 +237,24 @@ class StaffProController extends ChangeNotifier {
   String userName(String? id) => _userById(id ?? '')?.fullName ?? 'System';
   String businessName(String? id) => businessById(id)?.name ?? '—';
   String branchName(String? id) => branchById(id)?.name ?? '—';
+
+  Sale? saleById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    try {
+      return _db.sales.firstWhere((e) => e.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Expense? expenseById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    try {
+      return _db.expenses.firstWhere((e) => e.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
 
   void _assertActive(AppUser user) {
     if (!user.isActive) {
@@ -1010,6 +1100,54 @@ class StaffProController extends ChangeNotifier {
     return sale;
   }
 
+  Future<Sale> updateSale({
+    required String saleId,
+    required double amount,
+    required DateTime date,
+    required String category,
+    required String paymentMethod,
+    String description = '',
+    String? branchId,
+  }) async {
+    final actor = requireUser();
+    if (!canManageSalesExpenses) {
+      throw ForbiddenException('Only business admins can edit sales.');
+    }
+    final saleIndex = _db.sales.indexWhere((s) => s.id == saleId);
+    if (saleIndex < 0) throw ValidationException('Sale not found.');
+    final sale = _db.sales[saleIndex];
+    assertBusinessScope(actor, sale.businessId);
+    final bId = branchId ?? sale.branchId;
+    if (bId.isEmpty) throw ValidationException('Select a branch first.');
+    assertBranchScope(actor, bId);
+    if (amount <= 0) throw ValidationException('Amount must be greater than zero.');
+    sale
+      ..amount = amount
+      ..date = date
+      ..category = category
+      ..paymentMethod = paymentMethod
+      ..description = description.trim()
+      ..branchId = bId
+      ..updatedAt = DateTime.now();
+    _audit(AuditAction.salesModification, 'sales', businessId: sale.businessId, branchId: sale.branchId, recordId: sale.id, newData: 'updated');
+    await _save();
+    return sale;
+  }
+
+  Future<void> deleteSale(String saleId) async {
+    final actor = requireUser();
+    if (!canManageSalesExpenses) {
+      throw ForbiddenException('Only business admins can delete sales.');
+    }
+    final index = _db.sales.indexWhere((s) => s.id == saleId);
+    if (index < 0) throw ValidationException('Sale not found.');
+    final sale = _db.sales[index];
+    assertBusinessScope(actor, sale.businessId);
+    await _db.deleteSaleDoc(saleId);
+    _audit(AuditAction.salesModification, 'sales', businessId: sale.businessId, branchId: sale.branchId, recordId: saleId, newData: 'deleted');
+    await _save();
+  }
+
   Future<Expense> addExpense({
     required double amount,
     required DateTime date,
@@ -1058,6 +1196,66 @@ class StaffProController extends ChangeNotifier {
     _audit(AuditAction.create, 'expenses', businessId: expense.businessId, branchId: expense.branchId, recordId: expense.id);
     await _save();
     return expense;
+  }
+
+  Future<Expense> updateExpense({
+    required String expenseId,
+    required double amount,
+    required DateTime date,
+    required String categoryId,
+    String paymentMethod = 'Cash',
+    String description = '',
+    String? receiptPath,
+    String? branchId,
+  }) async {
+    final actor = requireUser();
+    if (!canManageSalesExpenses) {
+      throw ForbiddenException('Only business admins can edit expenses.');
+    }
+    final expenseIndex = _db.expenses.indexWhere((e) => e.id == expenseId);
+    if (expenseIndex < 0) throw ValidationException('Expense not found.');
+    final expense = _db.expenses[expenseIndex];
+    assertBusinessScope(actor, expense.businessId);
+    final bId = branchId ?? expense.branchId;
+    if (bId.isEmpty) throw ValidationException('Select a branch first.');
+    assertBranchScope(actor, bId);
+    if (amount <= 0) throw ValidationException('Amount must be greater than zero.');
+    ExpenseCategory? category;
+    try {
+      category = _db.expenseCategories.firstWhere((c) => c.id == categoryId);
+    } catch (_) {
+      throw ValidationException('Select a valid expense category.');
+    }
+    if (category.status != EntityStatus.active && category.id != expense.categoryId) {
+      throw ValidationException('This category is inactive.');
+    }
+    expense
+      ..amount = amount
+      ..date = date
+      ..categoryId = category.id
+      ..categoryName = category.name
+      ..paymentMethod = paymentMethod
+      ..description = description.trim()
+      ..receiptPath = receiptPath ?? expense.receiptPath
+      ..branchId = bId
+      ..updatedAt = DateTime.now();
+    _audit(AuditAction.expenseModification, 'expenses', businessId: expense.businessId, branchId: expense.branchId, recordId: expense.id, newData: 'updated');
+    await _save();
+    return expense;
+  }
+
+  Future<void> deleteExpense(String expenseId) async {
+    final actor = requireUser();
+    if (!canManageSalesExpenses) {
+      throw ForbiddenException('Only business admins can delete expenses.');
+    }
+    final index = _db.expenses.indexWhere((e) => e.id == expenseId);
+    if (index < 0) throw ValidationException('Expense not found.');
+    final expense = _db.expenses[index];
+    assertBusinessScope(actor, expense.businessId);
+    await _db.deleteExpenseDoc(expenseId);
+    _audit(AuditAction.expenseModification, 'expenses', businessId: expense.businessId, branchId: expense.branchId, recordId: expenseId, newData: 'deleted');
+    await _save();
   }
 
   List<ExpenseCategory> categoriesFor(String? businessId) {
@@ -1139,6 +1337,10 @@ class StaffProController extends ChangeNotifier {
       paymentAccountName: profile.paymentAccountName.trim(),
       paymentAccountNumber: profile.paymentAccountNumber.trim(),
       paymentInstructions: profile.paymentInstructions.trim(),
+      paymentQrUrl: profile.paymentQrUrl.trim(),
+      logoUrl: profile.logoUrl.trim(),
+      cashOnDelivery: profile.cashOnDelivery,
+      updatedAt: DateTime.now(),
     ));
     _audit(AuditAction.update, 'publicBusiness', businessId: profile.businessId, newData: slug);
     await _save();
@@ -1149,6 +1351,12 @@ class StaffProController extends ChangeNotifier {
     if (user == null || user.businessId == null) return false;
     return user.role == UserRole.businessAdmin &&
         (user.isOwner || user.permissions.fullAccess);
+  }
+
+  /// Business admins can create, edit, and delete any sale/expense in their business.
+  bool get canManageSalesExpenses {
+    final user = currentUser;
+    return user?.role == UserRole.businessAdmin;
   }
 
   Future<void> savePublicMenu(PublicMenu menu) async {
@@ -1395,8 +1603,7 @@ class StaffProController extends ChangeNotifier {
     );
   }
 
-  /// Cash in hand is reproducible from cash sales minus cash expenses.
-  /// Opening cash is the previous closing balance (starts at 0).
+  /// Cash-only balance for a custom range (used by QA and day movement).
   double cashInHand({
     required DateTime from,
     required DateTime to,
@@ -1404,21 +1611,136 @@ class StaffProController extends ChangeNotifier {
     String? branchId,
     String? businessId,
   }) {
-    final cashSales = _db.sales.where((s) {
-      if (!s.isCash) return false;
-      if (businessId != null && s.businessId != businessId) return false;
-      if (branchId != null && s.branchId != branchId) return false;
-      if (userId != null && s.userId != userId) return false;
-      return !s.date.isBefore(from) && s.date.isBefore(to);
-    }).fold<double>(0, (p, e) => p + e.amount);
-    final cashExpenses = _db.expenses.where((s) {
-      if (!s.isCash) return false;
-      if (businessId != null && s.businessId != businessId) return false;
-      if (branchId != null && s.branchId != branchId) return false;
-      if (userId != null && s.userId != userId) return false;
-      return !s.date.isBefore(from) && s.date.isBefore(to);
-    }).fold<double>(0, (p, e) => p + e.amount);
-    return cashSales - cashExpenses;
+    return accountsSummary(from: from, to: to, userId: userId, branchId: branchId, businessId: businessId).cashInHand;
+  }
+
+  /// Month-to-date accounts. Resets automatically on the 1st of each month.
+  AccountsSummary monthAccounts({String? userId, String? branchId, String? businessId}) {
+    final month = PeriodFilter.month();
+    final end = DateTime.now().add(const Duration(days: 1));
+    final to = end.isBefore(month.to) ? end : month.to;
+    return accountsSummary(from: month.from, to: to, userId: userId, branchId: branchId, businessId: businessId);
+  }
+
+  /// Month-to-date cash only (dashboard shortcut).
+  double totalCashInHand({String? userId, String? branchId, String? businessId}) {
+    return monthAccounts(userId: userId, branchId: branchId, businessId: businessId).cashInHand;
+  }
+
+  AccountsSummary accountsSummary({
+    required DateTime from,
+    required DateTime to,
+    String? userId,
+    String? branchId,
+    String? businessId,
+  }) {
+    var sales = 0.0;
+    var expenses = 0.0;
+    var cashSales = 0.0;
+    var cashExpenses = 0.0;
+    var cardSales = 0.0;
+    var cardExpenses = 0.0;
+    var onlineSales = 0.0;
+    var onlineExpenses = 0.0;
+
+    for (final sale in _db.sales) {
+      if (businessId != null && sale.businessId != businessId) continue;
+      if (branchId != null && sale.branchId != branchId) continue;
+      if (userId != null && sale.userId != userId) continue;
+      if (sale.date.isBefore(from) || !sale.date.isBefore(to)) continue;
+      sales += sale.amount;
+      switch (AccountsSummary._bucket(sale.paymentMethod)) {
+        case 'cash':
+          cashSales += sale.amount;
+        case 'card':
+          cardSales += sale.amount;
+        default:
+          onlineSales += sale.amount;
+      }
+    }
+
+    for (final expense in _db.expenses) {
+      if (businessId != null && expense.businessId != businessId) continue;
+      if (branchId != null && expense.branchId != branchId) continue;
+      if (userId != null && expense.userId != userId) continue;
+      if (expense.date.isBefore(from) || !expense.date.isBefore(to)) continue;
+      expenses += expense.amount;
+      switch (AccountsSummary._bucket(expense.paymentMethod)) {
+        case 'cash':
+          cashExpenses += expense.amount;
+        case 'card':
+          cardExpenses += expense.amount;
+        default:
+          onlineExpenses += expense.amount;
+      }
+    }
+
+    return AccountsSummary(
+      sales: sales,
+      expenses: expenses,
+      cashSales: cashSales,
+      cashExpenses: cashExpenses,
+      cardSales: cardSales,
+      cardExpenses: cardExpenses,
+      onlineSales: onlineSales,
+      onlineExpenses: onlineExpenses,
+    );
+  }
+
+  /// Month-to-date accounts for each manager/employee (and admins with activity).
+  List<StaffAccountsRow> staffAccountsBreakdown({String? businessId, String? branchId}) {
+    final people = _db.users.where((u) {
+      if (!u.isActive) return false;
+      if (businessId != null && u.businessId != businessId) return false;
+      if (u.role != UserRole.manager && u.role != UserRole.employee && u.role != UserRole.businessAdmin) {
+        return false;
+      }
+      if (branchId != null && u.role != UserRole.businessAdmin && u.branchId != branchId) return false;
+      return true;
+    }).toList()
+      ..sort((a, b) => a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()));
+
+    final rows = <StaffAccountsRow>[];
+    for (final person in people) {
+      final accounts = monthAccounts(
+        userId: person.id,
+        businessId: businessId ?? person.businessId,
+        branchId: branchId,
+      );
+      if (person.role == UserRole.businessAdmin && accounts.sales == 0 && accounts.expenses == 0) continue;
+      rows.add(StaffAccountsRow(user: person, accounts: accounts));
+    }
+    rows.sort((a, b) => b.accounts.totalBalance.compareTo(a.accounts.totalBalance));
+    return rows;
+  }
+
+  @Deprecated('Use staffAccountsBreakdown')
+  List<StaffAccountsRow> staffCashBreakdown({String? businessId, String? branchId}) {
+    return staffAccountsBreakdown(businessId: businessId, branchId: branchId);
+  }
+
+  /// Day-wise sales, expenses, and remaining (sales − expenses) for the selected period.
+  List<DailyPnLRow> dailyPnLRows({String? businessId, String? branchId, required PeriodFilter period}) {
+    final byDay = <DateTime, DailyPnLRow>{};
+
+    void touch(DateTime date) {
+      final day = DateTime(date.year, date.month, date.day);
+      byDay.putIfAbsent(day, () => DailyPnLRow(day: day));
+    }
+
+    for (final sale in _filterSales(businessId: businessId, branchId: branchId, period: period)) {
+      touch(sale.date);
+      final day = DateTime(sale.date.year, sale.date.month, sale.date.day);
+      byDay[day]!.sales += sale.amount;
+    }
+    for (final expense in _filterExpenses(businessId: businessId, branchId: branchId, period: period)) {
+      touch(expense.date);
+      final day = DateTime(expense.date.year, expense.date.month, expense.date.day);
+      byDay[day]!.expenses += expense.amount;
+    }
+
+    final rows = byDay.values.toList()..sort((a, b) => a.day.compareTo(b.day));
+    return rows;
   }
 
   Map<String, int> attendanceSummary({

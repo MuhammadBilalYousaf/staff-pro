@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:staffpro/core/theme/app_colors.dart';
 
@@ -6,59 +7,102 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData light() {
+    // Dark glass is the only app theme (kept method name for callers).
     final base = ThemeData(
       useMaterial3: true,
-      brightness: Brightness.light,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: AppColors.primary,
+      brightness: Brightness.dark,
+      colorScheme: const ColorScheme.dark(
         primary: AppColors.primary,
-        surface: AppColors.surface,
-        brightness: Brightness.light,
+        secondary: AppColors.blue,
+        surface: AppColors.navySoft,
+        error: AppColors.danger,
+        onPrimary: Colors.white,
+        onSecondary: Colors.white,
+        onSurface: AppColors.text,
+        onError: Colors.white,
       ),
     );
 
     final textTheme = GoogleFonts.interTextTheme(base.textTheme).apply(
-      bodyColor: AppColors.navy,
-      displayColor: AppColors.navy,
+      bodyColor: AppColors.text,
+      displayColor: AppColors.text,
     );
 
     return base.copyWith(
-      scaffoldBackgroundColor: AppColors.surface,
+      scaffoldBackgroundColor: Colors.transparent,
+      canvasColor: AppColors.background,
       textTheme: textTheme,
       primaryTextTheme: textTheme,
+      iconTheme: const IconThemeData(color: AppColors.text),
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.navy,
+        backgroundColor: Colors.transparent,
+        foregroundColor: AppColors.text,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         titleTextStyle: textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: AppColors.navy,
+          fontWeight: FontWeight.w800,
+          color: AppColors.text,
         ),
+        iconTheme: const IconThemeData(color: AppColors.text),
       ),
       dividerColor: AppColors.border,
+      cardTheme: CardThemeData(
+        color: AppColors.glass,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        elevation: 6,
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: AppColors.glass,
+        selectedColor: AppColors.primary,
+        labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.text),
+        secondaryLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.white),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        side: const BorderSide(color: AppColors.border),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.navySoft,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        titleTextStyle: textTheme.titleLarge?.copyWith(color: AppColors.text, fontWeight: FontWeight.w800),
+        contentTextStyle: textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: AppColors.navySoft,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        fillColor: AppColors.glassStrong,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: AppColors.primary, width: 1.6),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: AppColors.danger),
         ),
         hintStyle: const TextStyle(color: AppColors.placeholder),
+        labelStyle: const TextStyle(color: AppColors.muted),
+        prefixIconColor: AppColors.placeholder,
+        suffixIconColor: AppColors.placeholder,
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
@@ -71,19 +115,19 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.navy,
-        contentTextStyle: textTheme.bodyMedium?.copyWith(color: Colors.white),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: AppColors.navyMuted,
+        contentTextStyle: textTheme.bodyMedium?.copyWith(color: AppColors.text),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: Colors.white,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.muted,
-        type: BottomNavigationBarType.fixed,
-        elevation: 12,
-        selectedLabelStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-        unselectedLabelStyle: TextStyle(fontSize: 11),
+      dataTableTheme: DataTableThemeData(
+        headingTextStyle: textTheme.labelLarge?.copyWith(color: AppColors.text, fontWeight: FontWeight.w800),
+        dataTextStyle: textTheme.bodyMedium?.copyWith(color: AppColors.text),
       ),
+      listTileTheme: const ListTileThemeData(
+        iconColor: AppColors.text,
+        textColor: AppColors.text,
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(color: AppColors.primary),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: ZoomPageTransitionsBuilder(),

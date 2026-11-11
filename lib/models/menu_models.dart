@@ -1,17 +1,20 @@
 class MenuChoice {
-  MenuChoice({required this.id, required this.name, required this.price});
+  MenuChoice({required this.id, required this.name, required this.price, this.scoops = 1});
 
   final String id;
   String name;
   double price;
+  /// How many flavor picks this variant asks for. Ignored on add-ons.
+  int scoops;
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'price': price};
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'price': price, 'scoops': scoops};
 
   factory MenuChoice.fromJson(Map<String, dynamic> json) {
     return MenuChoice(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       price: (json['price'] as num?)?.toDouble() ?? 0,
+      scoops: (json['scoops'] as num?)?.toInt() ?? 1,
     );
   }
 }
@@ -26,8 +29,10 @@ class MenuProduct {
     this.available = true,
     List<MenuChoice>? variants,
     List<MenuChoice>? addons,
+    List<MenuChoice>? flavors,
   })  : variants = variants ?? [],
-        addons = addons ?? [];
+        addons = addons ?? [],
+        flavors = flavors ?? [];
 
   final String id;
   String name;
@@ -38,6 +43,7 @@ class MenuProduct {
   bool available;
   List<MenuChoice> variants;
   List<MenuChoice> addons;
+  List<MenuChoice> flavors;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -48,6 +54,7 @@ class MenuProduct {
         'available': available,
         'variants': variants.map((e) => e.toJson()).toList(),
         'addons': addons.map((e) => e.toJson()).toList(),
+        'flavors': flavors.map((e) => e.toJson()).toList(),
       };
 
   factory MenuProduct.fromJson(Map<String, dynamic> json) {
@@ -65,6 +72,7 @@ class MenuProduct {
       available: json['available'] != false,
       variants: choices(json['variants']),
       addons: choices(json['addons']),
+      flavors: choices(json['flavors']),
     );
   }
 }
@@ -116,6 +124,10 @@ class PublicBusiness {
     this.paymentAccountName = '',
     this.paymentAccountNumber = '',
     this.paymentInstructions = '',
+    this.paymentQrUrl = '',
+    this.logoUrl = '',
+    this.cashOnDelivery = false,
+    this.updatedAt,
   });
 
   final String slug;
@@ -126,6 +138,10 @@ class PublicBusiness {
   String paymentAccountName;
   String paymentAccountNumber;
   String paymentInstructions;
+  String paymentQrUrl;
+  String logoUrl;
+  bool cashOnDelivery;
+  DateTime? updatedAt;
 
   Map<String, dynamic> toJson() => {
         'slug': slug,
@@ -136,6 +152,10 @@ class PublicBusiness {
         'paymentAccountName': paymentAccountName,
         'paymentAccountNumber': paymentAccountNumber,
         'paymentInstructions': paymentInstructions,
+        'paymentQrUrl': paymentQrUrl,
+        'logoUrl': logoUrl,
+        'cashOnDelivery': cashOnDelivery,
+        if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
       };
 
   factory PublicBusiness.fromJson(Map<String, dynamic> json) {
@@ -148,6 +168,10 @@ class PublicBusiness {
       paymentAccountName: json['paymentAccountName']?.toString() ?? '',
       paymentAccountNumber: json['paymentAccountNumber']?.toString() ?? '',
       paymentInstructions: json['paymentInstructions']?.toString() ?? '',
+      paymentQrUrl: json['paymentQrUrl']?.toString() ?? '',
+      logoUrl: json['logoUrl']?.toString() ?? '',
+      cashOnDelivery: json['cashOnDelivery'] == true,
+      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? ''),
     );
   }
 }

@@ -93,7 +93,17 @@ class _MenuScreenState extends State<MenuScreen> {
                             title: Text(product.name),
                             subtitle: Text(_productSubtitle(product)),
                             trailing: canEdit
-                                ? IconButton(onPressed: () => _editProduct(category, product), icon: const Icon(Icons.chevron_right))
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Delete product',
+                                        onPressed: () => _deleteProduct(category, product),
+                                        icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                                      ),
+                                      IconButton(onPressed: () => _editProduct(category, product), icon: const Icon(Icons.chevron_right)),
+                                    ],
+                                  )
                                 : null,
                             onTap: canEdit ? () => _editProduct(category, product) : null,
                           ),
@@ -184,6 +194,18 @@ class _MenuScreenState extends State<MenuScreen> {
     return result;
   }
 
+  Future<void> _deleteProduct(MenuCategory category, MenuProduct product) async {
+    final ok = await confirmAction(
+      context,
+      title: 'Delete ${product.name}?',
+      message: 'It will leave this menu after you tap Save.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    );
+    if (!ok || !mounted) return;
+    setState(() => category.products.removeWhere((item) => item.id == product.id));
+  }
+
   Future<void> _editProduct(MenuCategory category, MenuProduct? existing) async {
     final product = await showDialog<MenuProduct>(
       context: context,
@@ -268,6 +290,7 @@ class _ProductDialogState extends State<_ProductDialog> {
   late final TextEditingController _price;
   late final TextEditingController _variants;
   late final TextEditingController _addons;
+  late final TextEditingController _flavors;
   late bool _available;
   bool _uploading = false;
   final _uuid = const Uuid();
@@ -284,11 +307,15 @@ class _ProductDialogState extends State<_ProductDialog> {
     _price = TextEditingController(text: product == null ? '' : product.price.toStringAsFixed(0));
     _variants = TextEditingController(text: _formatChoices(product?.variants ?? []));
     _addons = TextEditingController(text: _formatChoices(product?.addons ?? []));
+    _flavors = TextEditingController(text: (product?.flavors ?? []).map((c) => c.name).join('\n'));
     _available = product?.available ?? true;
   }
 
   String _formatChoices(List<MenuChoice> choices) {
-    return choices.map((c) => '${c.name}=${c.price.toStringAsFixed(0)}').join('\n');
+    return choices.map((c) {
+      final price = '${c.name}=${c.price.toStringAsFixed(0)}';
+      return c.scoops > 1 ? '$price x${c.scoops}' : price;
+    }).join('\n');
   }
 
   List<MenuChoice> _parseChoices(String raw, List<MenuChoice> previous) {
@@ -298,7 +325,11 @@ class _ProductDialogState extends State<_ProductDialog> {
       final parts = line.split('=');
       final name = parts.first.trim();
       if (name.isEmpty) continue;
-      final price = parts.length > 1 ? double.tryParse(parts[1].trim()) ?? 0 : 0.0;
+      final rest = parts.length > 1 ? parts.sublist(1).join('=') : '';
+      final scoopMatch = RegExp(r'x\s*(\d+)\s*$', caseSensitive: false).firstMatch(rest.trim());
+      final priceText = scoopMatch == null ? rest.trim() : rest.trim().substring(0, scoopMatch.start).trim();
+      final price = double.tryParse(priceText) ?? 0.0;
+      final scoops = scoopMatch == null ? 1 : int.tryParse(scoopMatch.group(1) ?? '') ?? 1;
       String? reusedId;
       for (final choice in previous) {
         if (choice.name.toLowerCase() == name.toLowerCase()) {
@@ -306,7 +337,7 @@ class _ProductDialogState extends State<_ProductDialog> {
           break;
         }
       }
-      result.add(MenuChoice(id: reusedId ?? _uuid.v4(), name: name, price: price));
+      result.add(MenuChoice(id: reusedId ?? _uuid.v4(), name: name, price: price, scoops: scoops < 1 ? 1 : scoops));
     }
     return result;
   }
@@ -383,7 +414,16 @@ class _ProductDialogState extends State<_ProductDialog> {
               maxLines: 4,
               decoration: const InputDecoration(
                 labelText: 'Variants',
-                helperText: 'One per line: Single=250',
+                helperText: 'One per line: Single scoop=200 or Double scoop=300 x2',
+              ),
+            ),
+            TextField(
+              controller: _flavors,
+              minLines: 2,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Flavors',
+                helperText: 'One per line: Mango. A double scoop (x2) asks the customer to pick two.',
               ),
             ),
             TextField(
@@ -421,6 +461,7 @@ class _ProductDialogState extends State<_ProductDialog> {
                 available: _available,
                 variants: _parseChoices(_variants.text, previous?.variants ?? []),
                 addons: _parseChoices(_addons.text, previous?.addons ?? []),
+                flavors: _parseChoices(_flavors.text, previous?.flavors ?? []),
               ),
             );
           },

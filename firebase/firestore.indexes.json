@@ -162,6 +162,14 @@
       ]
     },
     {
+      "collectionGroup": "orderFeedback",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "businessId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "shifts",
       "queryScope": "COLLECTION",
       "fields": [

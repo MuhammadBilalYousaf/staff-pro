@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:staffpro/features/auth/auth_screens.dart';
 import 'package:staffpro/features/operations/customer_orders_screen.dart';
+import 'package:staffpro/features/operations/order_feedback_screen.dart';
 import 'package:staffpro/features/operations/customers_screen.dart';
 import 'package:staffpro/features/operations/menu_screen.dart';
 import 'package:staffpro/features/operations/role_screens.dart';
+import 'package:staffpro/features/shared/cash_and_reports.dart';
 import 'package:staffpro/features/shared/shared_screens.dart';
 import 'package:staffpro/features/shells/app_shell.dart';
 import 'package:staffpro/features/super_admin/super_admin_screens.dart';
@@ -107,13 +109,18 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/ba/managers/:id', builder: (_, s) => PersonFormScreen(role: UserRole.manager, userId: s.pathParameters['id'])),
       GoRoute(path: '/ba/sales', builder: (_, __) => const SalesScreen()),
       GoRoute(path: '/ba/sales/add', builder: (_, __) => const AddSaleScreen()),
+      GoRoute(path: '/ba/sales/edit/:id', builder: (_, s) => AddSaleScreen(saleId: s.pathParameters['id'])),
       GoRoute(path: '/ba/expenses', builder: (_, __) => const ExpensesScreen()),
       GoRoute(path: '/ba/expenses/add', builder: (_, __) => const AddExpenseScreen()),
+      GoRoute(path: '/ba/expenses/edit/:id', builder: (_, s) => AddExpenseScreen(expenseId: s.pathParameters['id'])),
+      GoRoute(path: '/ba/cash', builder: (_, __) => const CashScreen()),
+      GoRoute(path: '/ba/reports/daily', builder: (_, __) => const DailyPnLReportScreen()),
       GoRoute(path: '/ba/attendance', builder: (_, __) => const AttendanceHistoryScreen(team: true)),
       GoRoute(path: '/ba/notifications', builder: (_, __) => const NotificationsScreen()),
       GoRoute(path: '/ba/categories', builder: (_, __) => const ExpenseCategoriesScreen()),
       GoRoute(path: '/ba/menu', builder: (_, __) => const MenuScreen()),
       GoRoute(path: '/ba/orders', builder: (_, __) => const CustomerOrdersScreen()),
+      GoRoute(path: '/ba/feedback', builder: (_, __) => const OrderFeedbackScreen()),
       GoRoute(path: '/ba/customers', builder: (_, __) => const CustomersScreen(detailPrefix: '/ba/customers')),
       GoRoute(path: '/ba/customers/:id', builder: (_, s) => CustomerDetailScreen(customerId: s.pathParameters['id']!)),
       GoRoute(path: '/ba/shifts', builder: (_, __) => const ShiftManagementScreen()),
@@ -147,6 +154,7 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/mg/employees/:id', builder: (_, s) => PersonFormScreen(role: UserRole.employee, userId: s.pathParameters['id'])),
       GoRoute(path: '/mg/sales/add', builder: (_, __) => const AddSaleScreen()),
       GoRoute(path: '/mg/orders', builder: (_, __) => const CustomerOrdersScreen()),
+      GoRoute(path: '/mg/feedback', builder: (_, __) => const OrderFeedbackScreen()),
       GoRoute(path: '/mg/customers', builder: (_, __) => const CustomersScreen(detailPrefix: '/mg/customers')),
       GoRoute(path: '/mg/customers/:id', builder: (_, s) => CustomerDetailScreen(customerId: s.pathParameters['id']!)),
       GoRoute(path: '/mg/expenses', builder: (_, __) => const ExpensesScreen()),
@@ -155,6 +163,7 @@ GoRouter createRouter(StaffProController app) {
       GoRoute(path: '/mg/attendance/team', builder: (_, __) => const AttendanceHistoryScreen(team: true)),
       GoRoute(path: '/mg/password-requests', builder: (_, __) => const PasswordRequestsScreen()),
       GoRoute(path: '/mg/reports', builder: (_, __) => const ReportsHubScreen()),
+      GoRoute(path: '/mg/reports/daily', builder: (_, __) => const DailyPnLReportScreen()),
       GoRoute(path: '/mg/notifications', builder: (_, __) => const NotificationsScreen()),
       GoRoute(path: '/mg/profile', builder: (_, __) => const ProfileScreen()),
       GoRoute(path: '/mg/password', builder: (_, __) => const ChangePasswordScreen()),
@@ -180,6 +189,7 @@ GoRouter createRouter(StaffProController app) {
         ],
       ),
       GoRoute(path: '/emp/orders', builder: (_, __) => const CustomerOrdersScreen()),
+      GoRoute(path: '/emp/feedback', builder: (_, __) => const OrderFeedbackScreen()),
       GoRoute(path: '/emp/sales/add', builder: (_, __) => const AddSaleScreen()),
       GoRoute(path: '/emp/expenses/add', builder: (_, __) => const AddExpenseScreen()),
       GoRoute(path: '/emp/attendance/history', builder: (_, __) => const AttendanceHistoryScreen()),

@@ -35,7 +35,9 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     return const Scaffold(
       body: DecorativeBackground(
-        child: Center(child: BrandLogo(size: 96)),
+        child: Center(
+          child: BrandLogo(size: 112),
+        ),
       ),
     );
   }
@@ -118,51 +120,58 @@ class _LoginScreenState extends State<LoginScreen> {
                       .fadeIn(duration: 400.ms)
                       .slideY(begin: -0.08, end: 0),
                   const SizedBox(height: 28),
-                  const Text('Login', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.navy)),
+                  const Text('Welcome back', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.text)),
                   const SizedBox(height: 4),
-                  const Text('Access your account', style: TextStyle(color: AppColors.muted)),
+                  const Text('Sign in to continue to StaffPro', style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w500)),
                   const SizedBox(height: 22),
-                  AppTextField(
-                    label: 'Email',
-                    controller: _email,
-                    hint: 'Enter your email',
-                    prefix: Icons.mail_outline_rounded,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: Validators.email,
-                  ),
-                  const SizedBox(height: 16),
-                  AppTextField(
-                    label: 'Password',
-                    controller: _password,
-                    hint: 'Enter your password',
-                    prefix: Icons.lock_outline_rounded,
-                    obscure: _obscure,
-                    textInputAction: TextInputAction.done,
-                    validator: (v) => Validators.password(v),
-                    suffix: IconButton(
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                      icon: Icon(_obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: AppColors.placeholder),
+                  AppCard(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      children: [
+                        AppTextField(
+                          label: 'Email',
+                          controller: _email,
+                          hint: 'Enter your email',
+                          prefix: Icons.mail_outline_rounded,
+                          keyboardType: TextInputType.emailAddress,
+                          validator: Validators.email,
+                        ),
+                        const SizedBox(height: 16),
+                        AppTextField(
+                          label: 'Password',
+                          controller: _password,
+                          hint: 'Enter your password',
+                          prefix: Icons.lock_outline_rounded,
+                          obscure: _obscure,
+                          textInputAction: TextInputAction.done,
+                          validator: (v) => Validators.password(v),
+                          suffix: IconButton(
+                            onPressed: () => setState(() => _obscure = !_obscure),
+                            icon: Icon(_obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: AppColors.placeholder),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: Checkbox(value: _remember, onChanged: (v) => setState(() => _remember = v ?? true)),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('Remember me', style: TextStyle(fontWeight: FontWeight.w600)),
+                            const Spacer(),
+                            TextButton(
+                              onPressed: () => context.push('/forgot-password'),
+                              child: const Text('Forgot password?', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        AppButton(label: 'Log In', loading: _loading, onPressed: _loading ? null : _submit),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: Checkbox(value: _remember, onChanged: (v) => setState(() => _remember = v ?? true)),
-                      ),
-                      const SizedBox(width: 8),
-                      const Text('Remember me', style: TextStyle(fontWeight: FontWeight.w600)),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () => context.push('/forgot-password'),
-                        child: const Text('Forgot password?'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  AppButton(label: 'Login', loading: _loading, onPressed: _loading ? null : _submit),
                   const SizedBox(height: 22),
                   const Row(
                     children: [
@@ -175,25 +184,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 18),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.wash,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                  AppCard(
+                    color: AppColors.purpleSoft,
+                    border: Border.all(color: AppColors.purple.withValues(alpha: 0.15)),
                     child: Column(
                       children: [
                         Row(
                           children: [
-                            Container(
-                              width: 42,
-                              height: 42,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(Icons.verified_user_outlined, color: AppColors.primary),
-                            ),
+                            SoftIconBox(icon: Icons.verified_user_outlined, color: AppColors.purple),
                             const SizedBox(width: 12),
                             const Expanded(
                               child: Column(
@@ -300,7 +298,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const BrandLogo(size: 64),
                   const SizedBox(height: 18),
-                  const Text('Create Super Admin', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                  const Text('Create Super Admin', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.text)),
                   const SizedBox(height: 6),
                   const Text(
                     'Enter your details and the secret code to create a super admin account.',

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:staffpro/core/routing/app_router.dart';
 import 'package:staffpro/core/theme/app_colors.dart';
 import 'package:staffpro/core/theme/app_theme.dart';
+import 'package:staffpro/core/widgets/brand_logo.dart';
 import 'package:staffpro/data/firestore_database.dart';
 import 'package:staffpro/firebase_options.dart';
 import 'package:staffpro/qa/full_qa_suite.dart';
@@ -28,7 +29,9 @@ Future<void> main() async {
     await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: Color(0xFF060E1A),
+      systemNavigationBarIconBrightness: Brightness.light,
     ));
   }
   final location = kQaMode || kQaUiMode ? QaLocationService() : LocationService();
@@ -86,7 +89,7 @@ class _StaffProAppState extends State<StaffProApp> {
         builder: (context, child) {
           final content = GestureDetector(
             onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-            child: child ?? const SizedBox.shrink(),
+            child: DecorativeBackground(child: child ?? const SizedBox.shrink()),
           );
           if (!kQaUiMode) return content;
           return Stack(
@@ -113,8 +116,9 @@ class AppStatusBar extends StatelessWidget {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: AppColors.surface,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: AppColors.background,
+        systemNavigationBarIconBrightness: Brightness.light,
       ),
       child: child,
     );

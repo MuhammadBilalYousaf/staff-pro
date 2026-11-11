@@ -99,6 +99,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     child: TextField(
                       controller: _search,
                       onChanged: (_) => setState(() {}),
+                      style: const TextStyle(color: AppColors.navy),
+                      cursorColor: AppColors.navy,
                       decoration: InputDecoration(
                         hintText: 'Search name, email or phone',
                         prefixIcon: const Icon(Icons.search),
@@ -177,15 +179,32 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
 }
 
+bool _guestOrder(Map<String, dynamic> data) {
+  if (data['customerKind'] == 'account') return false;
+  if (data['customerKind'] == 'guest') return true;
+  return (data['customerEmail']?.toString() ?? '').trim().isEmpty;
+}
+
 List<_CustomerRow> _mergeCustomers(
   List<QueryDocumentSnapshot<Map<String, dynamic>>> orders,
   List<QueryDocumentSnapshot<Map<String, dynamic>>> accounts,
 ) {
+    final accountIds = <String>{};
+    for (final doc in orders) {
+      final data = doc.data();
+      final id = data['customerUid']?.toString() ?? '';
+      if (id.isNotEmpty && !_guestOrder(data)) accountIds.add(id);
+    }
+    for (final doc in accounts) {
+      final id = doc.data()['customerId']?.toString() ?? '';
+      if (id.isNotEmpty) accountIds.add(id);
+    }
     final byId = <String, _CustomerRow>{};
     for (final doc in orders) {
       final data = doc.data();
       final id = data['customerUid']?.toString() ?? '';
       if (id.isEmpty) continue;
+      if (_guestOrder(data) && accountIds.contains(id)) continue;
       final row = byId.putIfAbsent(
         id,
         () => _CustomerRow(
@@ -286,7 +305,7 @@ class CustomerDetailScreen extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(row.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.navy)),
+                                  Text(row.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.text)),
                                   const SizedBox(height: 2),
                                   Text(row.email.isEmpty ? 'No email' : row.email, style: const TextStyle(color: AppColors.muted)),
                                   Text(row.phone.isEmpty ? 'No phone' : row.phone, style: const TextStyle(color: AppColors.muted)),
@@ -328,7 +347,7 @@ class CustomerDetailScreen extends StatelessWidget {
                           child: Text('Lifetime points earned: ${row.lifetimePoints}', style: const TextStyle(color: AppColors.muted, fontSize: 13)),
                         ),
                       const SizedBox(height: 18),
-                      const Text('Points history', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.navy)),
+                      const Text('Points history', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.text)),
                       const SizedBox(height: 8),
                       if (row.guest)
                         const Text('Guests do not earn points.', style: TextStyle(color: AppColors.muted))
@@ -337,7 +356,7 @@ class CustomerDetailScreen extends StatelessWidget {
                       else
                         _PointsHistory(transactions: txns, orders: orders),
                       const SizedBox(height: 18),
-                      const Text('Order history', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.navy)),
+                      const Text('Order history', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.text)),
                       const SizedBox(height: 8),
                       if (orders.isEmpty)
                         const Text('No orders yet.', style: TextStyle(color: AppColors.muted))
@@ -475,7 +494,7 @@ class _OrderTile extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text('Order ${data['orderNumber'] ?? id}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy)),
+                child: Text('Order ${data['orderNumber'] ?? id}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.text)),
               ),
               Text(Formatters.money((data['total'] as num?) ?? 0), style: const TextStyle(fontWeight: FontWeight.w800)),
             ],
@@ -495,7 +514,7 @@ class _OrderTile extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 2),
                 child: Text(
-                  '${raw['quantity'] ?? 1} × ${raw['name'] ?? 'Item'}${raw['variantName'] == null || '${raw['variantName']}'.isEmpty ? '' : ' (${raw['variantName']})'}',
+                  '${raw['quantity'] ?? 1} × ${raw['name'] ?? 'Item'}${raw['variantName'] == null || '${raw['variantName']}'.isEmpty ? '' : ' (${raw['variantName']})'}${_flavorLabel(raw)}',
                   style: const TextStyle(fontSize: 13),
                 ),
               ),
@@ -555,6 +574,17 @@ class _FilterChip extends StatelessWidget {
       ),
     );
   }
+}
+
+String _flavorLabel(Map raw) {
+  final flavors = raw['flavors'];
+  if (flavors is! List || flavors.isEmpty) return '';
+  final names = flavors
+      .whereType<Map>()
+      .map((flavor) => flavor['name']?.toString() ?? '')
+      .where((name) => name.isNotEmpty)
+      .join(' + ');
+  return names.isEmpty ? '' : ' · $names';
 }
 
 String _label(String raw) {
